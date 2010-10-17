@@ -407,6 +407,7 @@ static struct decoder ffmpeg_decoder = {
 	ffmpeg_get_error,
 	ffmpeg_our_format_ext,
 	NULL,
+	NULL,
 	ffmpeg_get_name,
 	NULL,
 	NULL,

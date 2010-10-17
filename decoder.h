@@ -13,7 +13,7 @@ extern "C" {
  *
  * On every change in the decoder API this number will be changed, so MOC will
  * not load plugins compiled with older/newer decoder.h. */
-#define DECODER_API_VERSION	7
+#define DECODER_API_VERSION	8
 
 /** Type of the decoder error. */
 enum decoder_error_type
@@ -199,6 +199,16 @@ struct decoder
 	 * extension is supported.
 	 */
 	int (*our_format_ext)(const char *ext);
+
+	/** Check if the file format is for a file that this decoder
+	 * supports.
+	 *
+	 * \param file (file name).
+	 *
+	 * \return Value other than 0 if a file with this format
+	 * is supported.
+	 */
+	int (*our_format_file)(const char *file);
 
 	/** Check if a stream with the given MIME type is supported by this
 	 * decoder. Optional.

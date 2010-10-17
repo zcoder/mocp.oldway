@@ -701,6 +701,7 @@ static struct decoder spx_decoder = {
 	spx_get_duration,
 	spx_get_error,
 	spx_our_format_ext,
+	NULL,
 	spx_our_mime,
 	spx_get_name,
 	NULL /*spx_current_tags*/,

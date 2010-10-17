@@ -303,6 +303,7 @@ static struct decoder modplug_decoder =
   modplug_get_error,
   modplug_our_format_ext,
   NULL,
+  NULL,
   modplug_get_name,
   NULL,
   NULL,

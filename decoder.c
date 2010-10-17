@@ -60,18 +60,22 @@ static int find_type (const char *file)
 	}
 #endif
 
-	if (result == -1) {
-		char *ext;
+	char* ext = ext_pos(file);
 
-		ext = ext_pos (file);
-		if (ext) {
-			for (i = 0; i < plugins_num; i++) {
-				if (plugins[i].decoder->our_format_ext &&
-				    plugins[i].decoder->our_format_ext (ext)) {
+	int fast = 1;
+	if (result == -1) {
+		for (i = 0; i < plugins_num; i++) {
+			if ( fast ) {
+				if ((plugins[i].decoder->our_format_ext && plugins[i].decoder->our_format_ext (ext)) ||
+					(plugins[i].decoder->our_format_file && plugins[i].decoder->our_format_file (file))) {
+					result = i;
+					break;
+				} 
+			} else if ((plugins[i].decoder->our_format_file && plugins[i].decoder->our_format_file (file)) ||
+					(plugins[i].decoder->our_format_ext && plugins[i].decoder->our_format_ext (ext))) {
 					result = i;
 					break;
 				}
-			}
 		}
 	}
 

@@ -452,8 +452,10 @@ static void musepack_get_name (const char *file ATTR_UNUSED, char buf[4])
 	strcpy (buf, "MPC");
 }
 
-static int musepack_our_format_ext (const char *ext)
+static int musepack_our_format_ext (const char *file)
 {
+	char* ext = ext_pos(file);
+
 	return !strcasecmp(ext, "mpc");
 }
 
@@ -479,6 +481,7 @@ static struct decoder musepack_decoder = {
 	musepack_get_duration,
 	musepack_get_error,
 	musepack_our_format_ext,
+	NULL, /*musepack_our_format_file*/
 	NULL /*musepack_our_mime*/,
 	musepack_get_name,
 	NULL /* musepack_current_tags */,
