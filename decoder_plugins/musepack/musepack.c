@@ -452,10 +452,8 @@ static void musepack_get_name (const char *file ATTR_UNUSED, char buf[4])
 	strcpy (buf, "MPC");
 }
 
-static int musepack_our_format_ext (const char *file)
+static int musepack_our_format_ext (const char *ext)
 {
-	char* ext = ext_pos(file);
-
 	return !strcasecmp(ext, "mpc");
 }
 
