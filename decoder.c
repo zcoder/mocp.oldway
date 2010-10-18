@@ -60,24 +60,44 @@ static int find_type (const char *file)
 	}
 #endif
 
-	char* ext = ext_pos(file);
 
-	int FastDirScan = options_get_bool("FastDirScan");
-	if (result == -1) {
-		for (i = 0; i < plugins_num; i++) {
-			if ( FastDirScan ) {
-				if ((plugins[i].decoder->our_format_ext && plugins[i].decoder->our_format_ext (ext)) ||
-					(plugins[i].decoder->our_format_file && plugins[i].decoder->our_format_file (file))) {
+	if (result == -1)
+		{
+		int FastDirScan = options_get_bool("FastDirScan");
+		char* ext = ext_pos(file);
+		for (i = 0; i < plugins_num; i++)
+			{
+			if ( FastDirScan )
+				{
+				if ( plugins[i].decoder->our_format_ext )
+					{
+					if ( ext && plugins[i].decoder->our_format_ext( ext ) )
+						{
+						result = i;
+						break;
+						}
+					}
+				else if ( plugins[i].decoder->our_format_file && plugins[i].decoder->our_format_file (file) )
+					{
 					result = i;
 					break;
-				} 
-			} else if ((plugins[i].decoder->our_format_file && plugins[i].decoder->our_format_file (file)) ||
-					(plugins[i].decoder->our_format_ext && plugins[i].decoder->our_format_ext (ext))) {
-					result = i;
-					break;
+					}
 				}
+			else if ( plugins[i].decoder->our_format_file )
+				{
+				if ( plugins[i].decoder->our_format_file( file ) )
+					{
+					result = i;
+					break;
+					}
+				}
+			else if ( ext && plugins[i].decoder->our_format_ext && plugins[i].decoder->our_format_ext( ext ) )
+				{
+				result = i;
+				break;
+				}
+			}
 		}
-	}
 
 	return result;
 }
