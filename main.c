@@ -71,6 +71,10 @@ struct parameters
 	char *off;
 };
 
+void disable_stderr()
+{
+stderr = freopen( "/dev/null", "w", stderr );
+}
 
 /* Connect to the server, return fd of the socket or -1 on error. */
 static int server_connect ()
@@ -193,6 +197,8 @@ static void start_moc (const struct parameters *params, char **args,
 		signal (SIGPIPE, SIG_IGN);
 		if (ping_server(server_sock)) {
 			if (!params->dont_run_iface) {
+				if ( !params->debug )
+					disable_stderr();
 				init_interface (server_sock, params->debug,
 						args, arg_num);
 				interface_loop ();

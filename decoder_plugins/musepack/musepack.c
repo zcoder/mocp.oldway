@@ -479,6 +479,7 @@ static struct decoder musepack_decoder = {
 	musepack_get_duration,
 	musepack_get_error,
 	musepack_our_format_ext,
+	NULL, /*musepack_our_format_file*/
 	NULL /*musepack_our_mime*/,
 	musepack_get_name,
 	NULL /* musepack_current_tags */,

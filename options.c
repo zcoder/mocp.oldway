@@ -411,6 +411,7 @@ void options_init ()
 {
 	memset (options, 0, sizeof(options));
 
+	option_add_bool ("FastDirScan", true);
 	option_add_bool ("ReadTags", true);
 	option_add_str  ("MusicDir", NULL, CHECK_NONE);
 	option_add_bool ("StartInMusicDir", false);

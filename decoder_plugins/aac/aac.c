@@ -589,6 +589,7 @@ static struct decoder aac_decoder = {
 	aac_get_duration,
 	aac_get_error,
 	aac_our_format_ext,
+	NULL,
 	aac_our_mime,
 	aac_get_name,
 	NULL,

@@ -708,6 +708,7 @@ static struct decoder flac_decoder = {
 	flac_get_duration,
 	flac_get_error,
 	flac_our_format_ext,
+	NULL,
 	flac_our_format_mime,
 	flac_get_name,
 	NULL,
