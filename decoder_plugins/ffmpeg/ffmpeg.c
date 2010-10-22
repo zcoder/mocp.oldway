@@ -9,7 +9,7 @@
  *
  * Based on FFplay Copyright (c) 2003 Fabrice Bellard
  *
- * Yuri Dyachenko edition
+ * Yuri Dyachenko <admin@yurial.ru> edition
  */
 
 #ifdef HAVE_CONFIG_H
@@ -49,16 +49,16 @@ struct format;
 struct format
 {
 char* m_ext;
-char  m_name[4];
+char* m_name;
 };
 
 struct format formats[] = {
-//	{ "wma", "WMA" }, //bad
+	{ "wma", "WMA" },
 	{ "mp3", "MP3" },
 	{ "ogg", "OGG" },
 	{ "aac", "AAC" },
 	{ "ac3", "AC3" },
-	{ "m4a", "M4A" },
+	{ "m4a", NULL  },
 	{ "wav", "WAV" },
 	{ "wv" , "WV"  },
 	{ "ape", "APE" },
@@ -86,7 +86,7 @@ int audio_index;
 static void ffmpeg_init()
 {
 avcodec_register_all();
-av_register_all ();
+av_register_all();
 }
 
 /* Fill info structure with data from ffmpeg comments */
@@ -392,11 +392,13 @@ return (data->pfc->duration >= 0)? (data->pfc->duration/AV_TIME_BASE) : -1;
 
 static void ffmpeg_get_name(const char *file, char buf[4])
 {
+buf[3] = '\0';
+
 const char UNK[] = "UNK";
-char* ext = ext_pos(file);
+char* ext = ext_pos( file );
 unsigned int i;
 for (i = 0; i < FORMATS_COUNT; ++i)
-	if ( !strcasecmp( ext, formats[i].m_ext ) )
+	if ( formats[i].m_name && !strcasecmp( ext, formats[i].m_ext ) )
 		{
 		strncpy( buf, formats[i].m_name, 3 );
 		return;
@@ -406,17 +408,33 @@ AVFormatContext* pfc;
 int ret = av_open_input_file( &pfc, file, NULL, 0, NULL );
 if ( ret )
 	{
-	strcpy( buf, UNK );
+	strncpy( buf, UNK, 3 );
 	return;
 	}
-	ret = av_find_stream_info( pfc );
+ret = av_find_stream_info( pfc );
 if ( ret < 0 )
 	{
-	strcpy( buf, UNK );
+	strncpy( buf, UNK, 3 );
 	return;
 	}
 
-strncpy( buf, pfc->iformat->name, 3 );
+for (i = 0; i < pfc->nb_streams; ++i)
+        {
+	if ( pfc->streams[i]->codec->codec_type == CODEC_TYPE_AUDIO )
+		{
+		AVCodec* pcodec = avcodec_find_decoder( pfc->streams[i]->codec->codec_id );
+		if ( pcodec )
+			{
+			strncpy( buf, pcodec->name, 3 );
+			break;
+			}
+		else
+			{
+			strncpy( buf, UNK, 3 );
+			return;
+			}
+		}
+	}
 
 //to upper case
 buf[0] = toupper(buf[0]);
@@ -451,12 +469,12 @@ if ( ret < 0 )
 unsigned int i;
 for (i = 0; i < pfc->nb_streams; ++i)
 	{
-	if ( pfc->streams[i]->codec->codec_type==CODEC_TYPE_VIDEO )
+	if ( pfc->streams[i]->codec->codec_type == CODEC_TYPE_VIDEO )
 		{
 		video = 1;
 		break;
 		}
-	else if ( pfc->streams[i]->codec->codec_type==CODEC_TYPE_AUDIO )
+	else if ( pfc->streams[i]->codec->codec_type == CODEC_TYPE_AUDIO )
 		audio = 1;
         }
 

@@ -63,8 +63,8 @@ static int find_type (const char *file)
 
 	if (result == -1)
 		{
-		int FastDirScan = options_get_bool("FastDirScan");
-		char* ext = ext_pos(file);
+		int FastDirScan = options_get_bool( "FastDirScan" );
+		char* ext = ext_pos( file );
 		for (i = 0; i < plugins_num; i++)
 			{
 			if ( FastDirScan )
@@ -77,7 +77,7 @@ static int find_type (const char *file)
 						break;
 						}
 					}
-				else if ( plugins[i].decoder->our_format_file && plugins[i].decoder->our_format_file (file) )
+				else if ( plugins[i].decoder->our_format_file && plugins[i].decoder->our_format_file( file ) )
 					{
 					result = i;
 					break;
