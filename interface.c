@@ -2724,7 +2724,7 @@ static void do_silent_seek ()
 	time_t curr_time = time(NULL);
 	
 	if (silent_seek_pos != -1 && silent_seek_key_last < curr_time) {
-		seek (silent_seek_pos - curr_file.curr_time - 1);
+		seek (silent_seek_pos - curr_file.curr_time);
 		silent_seek_pos = -1;
 		iface_set_curr_time (curr_file.curr_time);
 	}
