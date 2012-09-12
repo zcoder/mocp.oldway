@@ -48,7 +48,7 @@ struct iface_key
 		IFACE_KEY_CHAR,		/* Regular char */
 		IFACE_KEY_FUNCTION	/* Function key (arrow, F12, etc. */
 	} type;
-	
+
 	union {
 		wchar_t ucs;	/* IFACE_KEY_CHAR */
 		int func;	/* IFACE_KEY_FUNCTION */
@@ -56,6 +56,7 @@ struct iface_key
 };
 
 void windows_init ();
+void windows_reset ();
 void windows_end ();
 void iface_set_option_state (const char *name, const int value);
 void iface_set_mixer_name (const char *name);
@@ -126,6 +127,7 @@ int iface_in_lyrics ();
 void iface_switch_to_lyrics ();
 void iface_handle_lyrics_key (const struct iface_key *k);
 void iface_toggle_layout ();
+void iface_toggle_percent ();
 void iface_swap_plist_items (const char *file1, const char *file2);
 void iface_make_visible (const enum iface_menu menu, const char *file);
 void iface_switch_to_theme_menu ();

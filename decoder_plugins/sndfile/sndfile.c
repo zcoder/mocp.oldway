@@ -13,13 +13,14 @@
 # include "config.h"
 #endif
 
+#include <string.h>
+#include <assert.h>
+#include <sndfile.h>
+
 #define DEBUG
 
-#include <string.h>
-#include <strings.h>
-#include <sndfile.h>
-#include "decoder.h"
 #include "common.h"
+#include "decoder.h"
 #include "server.h"
 #include "log.h"
 #include "files.h"
@@ -39,12 +40,12 @@ struct sndfile_data
 static void *sndfile_open (const char *file)
 {
 	struct sndfile_data *data;
-	
+
 	data = (struct sndfile_data *)xmalloc (sizeof(struct sndfile_data));
-	
+
 	decoder_error_init (&data->error);
 	memset (&data->snd_info, 0, sizeof(data->snd_info));
-	
+
 	if (!(data->sndfile = sf_open(file, SFM_READ,
 					&data->snd_info))) {
 
@@ -68,6 +69,8 @@ static void sndfile_close (void *void_data)
 
 	if (data->sndfile)
 		sf_close (data->sndfile);
+
+	decoder_error_clear (&data->error);
 	free (data);
 }
 
@@ -76,9 +79,9 @@ static void sndfile_info (const char *file_name, struct file_tags *info,
 {
 	if (tags_sel & TAGS_TIME) {
 		struct sndfile_data *data = sndfile_open (file_name);
-		
+
 		if (data->sndfile) {
-			
+
 			/* I don't know why, but this condition is in the
 			 * examples. */
 			if (data->snd_info.frames <= 0x7FFFFFFF) {
@@ -95,6 +98,8 @@ static int sndfile_seek (void *void_data, int sec)
 {
 	struct sndfile_data *data = (struct sndfile_data *)void_data;
 	int res;
+
+	assert (sec >= 0);
 
 	res = sf_seek (data->sndfile, data->snd_info.samplerate * sec,
 			SEEK_SET);
@@ -113,7 +118,7 @@ static int sndfile_decode (void *void_data, char *buf, int buf_len,
 	sound_params->channels = data->snd_info.channels;
 	sound_params->rate = data->snd_info.samplerate;
 	sound_params->fmt = SFMT_FLOAT;
-	
+
 	return sf_readf_float (data->sndfile, (float *)buf,
 			buf_len / sizeof(float) / data->snd_info.channels)
 		* sizeof(float) * data->snd_info.channels;
@@ -135,35 +140,36 @@ static int sndfile_get_duration (void *void_data)
 
 static void sndfile_get_name (const char *file, char buf[4])
 {
-	char *ext = ext_pos (file);
-	
-	if (!strcasecmp(ext, "au") || !strcasecmp(ext, "snd"))
+	char *ext;
+
+	ext = ext_pos (file);
+	if (!strcasecmp (ext, "au") || !strcasecmp (ext, "snd"))
 		strcpy (buf, "AU");
-	else if (!strcasecmp(ext, "wav"))
+	else if (!strcasecmp (ext, "wav"))
 		strcpy (buf, "WAV");
-	else if (!strcasecmp(ext, "aif") || !strcasecmp(ext, "aiff"))
+	else if (!strcasecmp (ext, "aif") || !strcasecmp (ext, "aiff"))
 		strcpy (buf, "AIF");
-	else if (!strcasecmp(ext, "8svx"))
+	else if (!strcasecmp (ext, "8svx"))
 		strcpy (buf, "SVX");
-	else if (!strcasecmp(ext, "sph"))
+	else if (!strcasecmp (ext, "sph"))
 		strcpy (buf, "SPH");
-	else if (!strcasecmp(ext, "sf"))
+	else if (!strcasecmp (ext, "sf"))
 		strcpy (buf, "IRC");
-	else if (!strcasecmp(ext, "voc"))
+	else if (!strcasecmp (ext, "voc"))
 		strcpy (buf, "VOC");
 }
 
 static int sndfile_our_format_ext (const char *ext)
 {
-	return !strcasecmp(ext, "au")
-		|| !strcasecmp(ext, "snd")
-		|| !strcasecmp(ext, "wav")
-		|| !strcasecmp(ext, "aif")
-		|| !strcasecmp(ext, "aiff")
-		|| !strcasecmp(ext, "8svx")
-		|| !strcasecmp(ext, "sph")
-		|| !strcasecmp(ext, "sf")
-		|| !strcasecmp(ext, "voc");
+	return !strcasecmp (ext, "au")
+		|| !strcasecmp (ext, "snd")
+		|| !strcasecmp (ext, "wav")
+		|| !strcasecmp (ext, "aif")
+		|| !strcasecmp (ext, "aiff")
+		|| !strcasecmp (ext, "8svx")
+		|| !strcasecmp (ext, "sph")
+		|| !strcasecmp (ext, "sf")
+		|| !strcasecmp (ext, "voc");
 }
 
 static void sndfile_get_error (void *prv_data, struct decoder_error *error)
@@ -188,7 +194,6 @@ static struct decoder sndfile_decoder = {
 	sndfile_get_duration,
 	sndfile_get_error,
 	sndfile_our_format_ext,
-	NULL,
 	NULL,
 	sndfile_get_name,
 	NULL,

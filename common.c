@@ -11,6 +11,7 @@
 
 #ifdef HAVE_CONFIG_H
 # include "config.h"
+# undef malloc
 #endif
 
 #include <stdio.h>
@@ -18,12 +19,21 @@
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+#include <ctype.h>
 #include <assert.h>
+#include <unistd.h>
+#include <sys/types.h>
+#include <pwd.h>
+#include <errno.h>
+#ifdef HAVE_SYSLOG
+#include <syslog.h>
+#endif
 
+#include "common.h"
 #include "server.h"
 #include "interface.h"
+#include "interface_elements.h"
 #include "log.h"
-#include "common.h"
 #include "options.h"
 
 static int im_server = 0; /* Am I the server? */
@@ -32,37 +42,54 @@ void error (const char *format, ...)
 {
 	va_list va;
 	char msg[256];
-	
+
 	va_start (va, format);
 	vsnprintf (msg, sizeof(msg), format, va);
 	msg[sizeof(msg) - 1] = 0;
 	va_end (va);
-	
+
 	if (im_server)
 		server_error (msg);
 	else
 		interface_error (msg);
 }
 
-/* End program with a message. Use when an error occurs and we can't recover. */
-void fatal (const char *format, ...)
+/* End program with a message. Use when an error occurs and we can't recover.
+ * If we're the server, then also log the message to the system log. */
+void internal_fatal (const char *file ATTR_UNUSED, int line ATTR_UNUSED,
+                 const char *function ATTR_UNUSED, const char *format, ...)
 {
 	va_list va;
 	char msg[256];
-	
+
+	windows_reset ();
+
 	va_start (va, format);
 	vsnprintf (msg, sizeof(msg), format, va);
 	msg[sizeof(msg) - 1] = 0;
 	fprintf (stderr, "\nFATAL_ERROR: %s\n\n", msg);
-	logit ("FATAL ERROR: %s", msg);
+#ifndef NDEBUG
+	internal_logit (file, line, function, "FATAL ERROR: %s", msg);
+#endif
 	va_end (va);
+
+	log_close ();
+
+#ifdef HAVE_SYSLOG
+	if (im_server)
+		syslog (LOG_USER|LOG_ERR, "%s", msg);
+#endif
 
 	exit (EXIT_FATAL);
 }
 
-void *xmalloc (const size_t size)
+void *xmalloc (size_t size)
 {
 	void *p;
+
+#ifndef HAVE_MALLOC
+	size = MAX(1, size);
+#endif
 
 	if ((p = malloc(size)) == NULL)
 		fatal ("Can't allocate memory!");
@@ -115,7 +142,7 @@ char *str_repl (char *target, const char *oldstr, const char *newstr)
 		target_len += newstr_len - oldstr_len;
 		p = needle - target;
 		if (target_len + 1 > target_max) {
-			target_max = (target_len + 1 > target_max * 2) ? target_len + 1 : target_max * 2;
+			target_max = MAX(target_len + 1, target_max * 2);
 			target = xrealloc(target, target_max);
 		}
 		memmove(target + p + newstr_len, target + p + oldstr_len, target_len - p - newstr_len + 1);
@@ -123,6 +150,35 @@ char *str_repl (char *target, const char *oldstr, const char *newstr)
 	}
 	target = xrealloc(target, target_len + 1);
 	return target;
+}
+
+/* Extract a substring starting at 'src' for length 'len' and remove
+ * any leading and trailing whitespace.  Return NULL if unable.  */
+char *trim (const char *src, size_t len)
+{
+	char *result;
+	const char *first, *last;
+
+	for (last = &src[len - 1]; last >= src; last -= 1) {
+		if (!isspace (*last))
+			break;
+	}
+	if (last < src)
+		return NULL;
+
+	for (first = src; first <= last; first += 1) {
+		if (!isspace (*first))
+			break;
+	}
+	if (first > last)
+		return NULL;
+
+	last += 1;
+	result = xcalloc (last - first + 1, sizeof (char));
+	strncpy (result, first, last - first);
+	result[last - first] = 0x00;
+
+	return result;
 }
 
 /* Return true iff the argument would be a syntactically valid symbol.
@@ -140,7 +196,7 @@ bool is_valid_symbol (const char *candidate)
 	result = false;
 	len = strlen (candidate);
 	if (len > 0 && len == strspn (candidate, valid) &&
-	               index (first, candidate[0]) == NULL)
+	               strchr (first, candidate[0]) == NULL)
 		result = true;
 
 	return result;
@@ -149,22 +205,19 @@ bool is_valid_symbol (const char *candidate)
 /* Return path to a file in MOC config directory. NOT THREAD SAFE */
 char *create_file_name (const char *file)
 {
-	char *home_dir;
 	static char fname[PATH_MAX];
 	char *moc_dir = options_get_str ("MOCDir");
-	
+
 	if (moc_dir[0] == '~') {
-		if (!(home_dir = getenv("HOME")))
-			fatal ("No HOME environmential variable.");
-		if (snprintf(fname, sizeof(fname), "%s/%s/%s", home_dir,
+		if (snprintf(fname, sizeof(fname), "%s/%s/%s", get_home (),
 				(moc_dir[1] == '/') ? moc_dir + 2 : moc_dir + 1,
 				file)
 				>= (int)sizeof(fname))
-			fatal ("Path too long.");
+			fatal ("Path too long!");
 	}
 	else if (snprintf(fname, sizeof(fname), "%s/%s", moc_dir, file)
 			>= (int)sizeof(fname))
-		fatal ("Path too long.");
+		fatal ("Path too long!");
 
 	return fname;
 }
@@ -178,16 +231,38 @@ void sec_to_min (char *buff, const int seconds)
 
 		/* the time is less than 99:59 */
 		int min, sec;
-		
+
 		min = seconds / 60;
 		sec = seconds % 60;
 
 		snprintf (buff, 6, "%02d:%02d", min, sec);
 	}
-	else if (seconds < 10000 * 60) 
+	else if (seconds < 10000 * 60)
 
 		/* the time is less than 9999 minutes */
 		snprintf (buff, 6, "%4dm", seconds/60);
 	else
 		strcpy (buff, "!!!!!");
+}
+
+/* Determine and return the path of the user's home directory. */
+const char *get_home ()
+{
+	static const char *home = NULL;
+	struct passwd *passwd;
+
+	if (home == NULL) {
+		home = xstrdup (getenv ("HOME"));
+		if (home == NULL) {
+			errno = 0;
+			passwd = getpwuid (geteuid ());
+			if (passwd)
+				home = xstrdup (passwd->pw_dir);
+			else
+				if (errno != 0)
+					logit ("getpwuid(%d): %s", geteuid (), strerror (errno));
+		}
+	}
+
+	return home;
 }

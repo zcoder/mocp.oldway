@@ -29,30 +29,29 @@
 # include <inttypes.h>
 #endif
 
+#include "common.h"
 #include "softmixer.h"
 #include "audio_helper.h"
 #include "options.h"
-#include "common.h"
 #include "files.h"
 #include "log.h"
 
-
 /* #define DEBUG */
 
+static int active;
+static int mix_mono;
+static int mixer_val, mixer_amp, mixer_real;
+static float mixer_realf;
+
+static void softmixer_read_config();
+static void softmixer_write_config();
+
 /* public code */
-int active;
-
-int mix_mono;
-
-int mixer_val, mixer_amp, mixer_real;
-float mixer_realf;
 
 char *softmixer_name()
 {
   return xstrdup((active)?SOFTMIXER_NAME:SOFTMIXER_NAME_OFF);
 }
-
-void softmixer_read_config();
 
 void softmixer_init()
 {
@@ -61,16 +60,14 @@ void softmixer_init()
   mixer_amp = 100;
   softmixer_set_value(100);
   softmixer_read_config();
-  logit("Softmixer initialized");
+  logit ("Softmixer initialized");
 }
-
-void softmixer_write_config();
 
 void softmixer_shutdown()
 {
   if(options_get_int(SOFTMIXER_SAVE_OPTION))
     softmixer_write_config();
-  logit("Softmixer stopped");
+  logit ("Softmixer stopped");
 }
 
 void softmixer_set_value(const int val)
@@ -126,22 +123,23 @@ int softmixer_is_mono()
 }
 
 /* private code */
-void process_buffer_u8(uint8_t *buf, size_t size);
-void process_buffer_s8(int8_t *buf, size_t size);
-void process_buffer_u16(uint16_t *buf, size_t size);
-void process_buffer_s16(int16_t *buf, size_t size);
-void process_buffer_u32(uint32_t *buf, size_t size);
-void process_buffer_s32(int32_t *buf, size_t size);
-void process_buffer_float(float *buf, size_t size);
-void mix_mono_u8(uint8_t *buf, int channels, size_t size);
-void mix_mono_s8(int8_t *buf, int channels, size_t size);
-void mix_mono_u16(uint16_t *buf, int channels, size_t size);
-void mix_mono_s16(int16_t *buf, int channels, size_t size);
-void mix_mono_u32(uint32_t *buf, int channels, size_t size);
-void mix_mono_s32(int32_t *buf, int channels, size_t size);
-void mix_mono_float(float *buf, int channels, size_t size);
 
-void softmixer_read_config()
+static void process_buffer_u8(uint8_t *buf, size_t size);
+static void process_buffer_s8(int8_t *buf, size_t size);
+static void process_buffer_u16(uint16_t *buf, size_t size);
+static void process_buffer_s16(int16_t *buf, size_t size);
+static void process_buffer_u32(uint32_t *buf, size_t size);
+static void process_buffer_s32(int32_t *buf, size_t size);
+static void process_buffer_float(float *buf, size_t size);
+static void mix_mono_u8(uint8_t *buf, int channels, size_t size);
+static void mix_mono_s8(int8_t *buf, int channels, size_t size);
+static void mix_mono_u16(uint16_t *buf, int channels, size_t size);
+static void mix_mono_s16(int16_t *buf, int channels, size_t size);
+static void mix_mono_u32(uint32_t *buf, int channels, size_t size);
+static void mix_mono_s32(int32_t *buf, int channels, size_t size);
+static void mix_mono_float(float *buf, int channels, size_t size);
+
+static void softmixer_read_config()
 {
   char *cfname = create_file_name(SOFTMIXER_SAVE_FILE);
 
@@ -197,7 +195,7 @@ void softmixer_read_config()
           }
           else
           {
-            logit("Tried to set softmixer amplification out of range.");
+            logit ("Tried to set softmixer amplification out of range.");
           }
         }
     }
@@ -218,7 +216,7 @@ void softmixer_read_config()
           }
           else
           {
-            logit("Tried to set softmixer value out of range.");
+            logit ("Tried to set softmixer value out of range.");
           }
         }
     }
@@ -251,7 +249,7 @@ void softmixer_read_config()
   fclose(cf);
 }
 
-void softmixer_write_config()
+static void softmixer_write_config()
 {
   char *cfname = create_file_name(SOFTMIXER_SAVE_FILE);
 
@@ -270,42 +268,40 @@ void softmixer_write_config()
 
   fclose(cf);
 
-  logit("Softmixer configuration written");
+  logit ("Softmixer configuration written");
 }
 
 void softmixer_process_buffer(char *buf, size_t size, const struct sound_params *sound_params)
 {
-#ifdef DEBUG
-  logit("Processing %u bytes...", size);
-#endif
+  debug ("Processing %u bytes...", size);
+
   if(mixer_real==100 && !mix_mono)
     return;
 
   int do_softmix = mixer_real != 100;
 
-  long sound_endianess = sound_params->fmt & SFMT_MASK_ENDIANES;
+  long sound_endianness = sound_params->fmt & SFMT_MASK_ENDIANNESS;
   long sound_format = sound_params->fmt & SFMT_MASK_FORMAT;
 
   int samplesize = sample_size(sound_format);
   int is_float = (sound_params->fmt & SFMT_MASK_FORMAT) == SFMT_FLOAT;
 
-  int need_endianess_swap = 0;
+  int need_endianness_swap = 0;
 
-  if((sound_endianess != SFMT_NE) && (samplesize > 1) && (!is_float))
+  if((sound_endianness != SFMT_NE) && (samplesize > 1) && (!is_float))
   {
-    need_endianess_swap = 1;
+    need_endianness_swap = 1;
   }
 
   /* setup samples to perform arithmetic */
-  if(need_endianess_swap)
+  if(need_endianness_swap)
   {
-#ifdef DEBUG
-    logit("Converting endianess before mixing");
-#endif
+    debug ("Converting endianness before mixing");
+
     if(samplesize == 4)
-      swap_endianess_32((int32_t *)buf, size / sizeof(int32_t));
+      swap_endianness_32((int32_t *)buf, size / sizeof(int32_t));
     else
-      swap_endianess_16((int16_t *)buf, size / sizeof(int16_t));
+      swap_endianness_16((int16_t *)buf, size / sizeof(int16_t));
   }
 
   switch(sound_format)
@@ -353,26 +349,25 @@ void softmixer_process_buffer(char *buf, size_t size, const struct sound_params 
         mix_mono_float((float *)buf, sound_params->channels, size / sizeof(float));
       break;
   }
-  
-  /* restore sample-endianess */
-  if(need_endianess_swap)
+
+  /* restore sample-endianness */
+  if(need_endianness_swap)
   {
-#ifdef DEBUG
-    logit("Restoring endianess after mixing");
-#endif
+    debug ("Restoring endianness after mixing");
+
     if(samplesize == 4)
-      swap_endianess_32((int32_t *)buf, size / sizeof(int32_t));
+      swap_endianness_32((int32_t *)buf, size / sizeof(int32_t));
     else
-      swap_endianess_16((int16_t *)buf, size / sizeof(int16_t));
+      swap_endianness_16((int16_t *)buf, size / sizeof(int16_t));
   }
 }
 
-void process_buffer_u8(uint8_t *buf, size_t size)
+static void process_buffer_u8(uint8_t *buf, size_t size)
 {
-#ifdef DEBUG
-  logit("mixing");
-#endif
   size_t i;
+
+  debug ("mixing");
+
   for(i=0; i<size; i++)
   {
     int16_t tmp = buf[i];
@@ -388,12 +383,12 @@ void process_buffer_u8(uint8_t *buf, size_t size)
   }
 }
 
-void process_buffer_s8(int8_t *buf, size_t size)
+static void process_buffer_s8(int8_t *buf, size_t size)
 {
-#ifdef DEBUG
-  logit("mixing");
-#endif
   size_t i;
+
+  debug ("mixing");
+
   for(i=0; i<size; i++)
   {
     int16_t tmp = buf[i];
@@ -408,12 +403,12 @@ void process_buffer_s8(int8_t *buf, size_t size)
   }
 }
 
-void process_buffer_u16(uint16_t *buf, size_t size)
+static void process_buffer_u16(uint16_t *buf, size_t size)
 {
-#ifdef DEBUG
-  logit("mixing");
-#endif
   size_t i;
+
+  debug ("mixing");
+
   for(i=0; i<size; i++)
   {
     int32_t tmp = buf[i];
@@ -429,12 +424,12 @@ void process_buffer_u16(uint16_t *buf, size_t size)
   }
 }
 
-void process_buffer_s16(int16_t *buf, size_t size)
+static void process_buffer_s16(int16_t *buf, size_t size)
 {
-#ifdef DEBUG
-  logit("mixing");
-#endif
   size_t i;
+
+  debug ("mixing");
+
   for(i=0; i<size; i++)
   {
     int32_t tmp = buf[i];
@@ -449,12 +444,12 @@ void process_buffer_s16(int16_t *buf, size_t size)
   }
 }
 
-void process_buffer_u32(uint32_t *buf, size_t size)
+static void process_buffer_u32(uint32_t *buf, size_t size)
 {
-#ifdef DEBUG
-  logit("mixing");
-#endif
   size_t i;
+
+  debug ("mixing");
+
   for(i=0; i<size; i++)
   {
     int64_t tmp = buf[i];
@@ -471,12 +466,12 @@ void process_buffer_u32(uint32_t *buf, size_t size)
   }
 }
 
-void process_buffer_s32(int32_t *buf, size_t size)
+static void process_buffer_s32(int32_t *buf, size_t size)
 {
-#ifdef DEBUG
-  logit("mixing");
-#endif
   size_t i;
+
+  debug ("mixing");
+
   for(i=0; i<size; i++)
   {
     int64_t tmp = buf[i];
@@ -491,12 +486,12 @@ void process_buffer_s32(int32_t *buf, size_t size)
   }
 }
 
-void process_buffer_float(float *buf, size_t size)
+static void process_buffer_float(float *buf, size_t size)
 {
-#ifdef DEBUG
-  logit("mixing");
-#endif
   size_t i;
+
+  debug ("mixing");
+
   for(i=0; i<size; i++)
   {
     float tmp = buf[i];
@@ -511,13 +506,12 @@ void process_buffer_float(float *buf, size_t size)
 }
 
 // Mono-Mixing
-void mix_mono_u8(uint8_t *buf, int channels, size_t size)
+static void mix_mono_u8(uint8_t *buf, int channels, size_t size)
 {
-#ifdef DEBUG
-  logit("making mono");
-#endif
   int c;
   size_t i = 0;
+
+  debug ("making mono");
 
   if(channels < 2)
     return;
@@ -544,13 +538,12 @@ void mix_mono_u8(uint8_t *buf, int channels, size_t size)
   }
 }
 
-void mix_mono_s8(int8_t *buf, int channels, size_t size)
+static void mix_mono_s8(int8_t *buf, int channels, size_t size)
 {
-#ifdef DEBUG
-  logit("making mono");
-#endif
   int c;
   size_t i = 0;
+
+  debug ("making mono");
 
   if(channels < 2)
     return;
@@ -579,13 +572,12 @@ void mix_mono_s8(int8_t *buf, int channels, size_t size)
   }
 }
 
-void mix_mono_u16(uint16_t *buf, int channels, size_t size)
+static void mix_mono_u16(uint16_t *buf, int channels, size_t size)
 {
-#ifdef DEBUG
-  logit("making mono");
-#endif
   int c;
   size_t i = 0;
+
+  debug ("making mono");
 
   if(channels < 2)
     return;
@@ -612,13 +604,12 @@ void mix_mono_u16(uint16_t *buf, int channels, size_t size)
   }
 }
 
-void mix_mono_s16(int16_t *buf, int channels, size_t size)
+static void mix_mono_s16(int16_t *buf, int channels, size_t size)
 {
-#ifdef DEBUG
-  logit("making mono");
-#endif
   int c;
   size_t i = 0;
+
+  debug ("making mono");
 
   if(channels < 2)
     return;
@@ -647,13 +638,12 @@ void mix_mono_s16(int16_t *buf, int channels, size_t size)
   }
 }
 
-void mix_mono_u32(uint32_t *buf, int channels, size_t size)
+static void mix_mono_u32(uint32_t *buf, int channels, size_t size)
 {
-#ifdef DEBUG
-  logit("making mono");
-#endif
   int c;
   size_t i = 0;
+
+  debug ("making mono");
 
   if(channels < 2)
     return;
@@ -680,13 +670,12 @@ void mix_mono_u32(uint32_t *buf, int channels, size_t size)
   }
 }
 
-void mix_mono_s32(int32_t *buf, int channels, size_t size)
+static void mix_mono_s32(int32_t *buf, int channels, size_t size)
 {
-#ifdef DEBUG
-  logit("making mono");
-#endif
   int c;
   size_t i = 0;
+
+  debug ("making mono");
 
   if(channels < 2)
     return;
@@ -715,13 +704,12 @@ void mix_mono_s32(int32_t *buf, int channels, size_t size)
   }
 }
 
-void mix_mono_float(float *buf, int channels, size_t size)
+static void mix_mono_float(float *buf, int channels, size_t size)
 {
-#ifdef DEBUG
-  logit("making mono");
-#endif
   int c;
   size_t i = 0;
+
+  debug ("making mono");
 
   if(channels < 2)
     return;
@@ -749,4 +737,3 @@ void mix_mono_float(float *buf, int channels, size_t size)
     i+=channels;
   }
 }
-

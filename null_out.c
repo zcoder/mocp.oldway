@@ -17,12 +17,11 @@
 
 #include <unistd.h>
 
-#include "audio.h"
 #include "common.h"
+#include "audio.h"
 
 static struct sound_params params = { 0, 0, 0 };
 
- 
 static int null_open (struct sound_params *sound_params)
 {
 	params = *sound_params;

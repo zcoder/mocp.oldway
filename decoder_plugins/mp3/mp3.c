@@ -30,11 +30,8 @@
 #include <id3tag.h>
 #include <pthread.h>
 #include <assert.h>
-#ifdef HAVE_ICONV_H
+#ifdef HAVE_ICONV
 # include <iconv.h>
-#endif
-#ifdef HAVE_RCC
-# include <librcc.h>
 #endif
 
 #define DEBUG
@@ -48,6 +45,7 @@
 #include "options.h"
 #include "files.h"
 #include "utf8.h"
+#include "rcc.h"
 #include "options.h"
 
 #define INPUT_BUFFER	(32 * 1024)
@@ -73,7 +71,7 @@ struct mp3_data
 	struct mad_synth synth;
 
 	int skip_frames; /* how many frames to skip (after seeking) */
-	
+
 	int ok; /* was this stream successfully opened? */
 	struct decoder_error error;
 };
@@ -84,7 +82,7 @@ static size_t fill_buff (struct mp3_data *data)
 	size_t remaining;
 	ssize_t read_size;
 	unsigned char *read_start;
-	
+
 	if (data->stream.next_frame != NULL) {
 		remaining = data->stream.bufend - data->stream.next_frame;
 		memmove (data->in_buff, data->stream.next_frame, remaining);
@@ -116,28 +114,6 @@ static size_t fill_buff (struct mp3_data *data)
 
 	return read_size;
 }
-
-#ifdef HAVE_RCC
-static char *do_rcc (char *str)
-{
-	rcc_string rccstring;
-	char *reencoded;
-
-	assert (str != NULL);
-
-	rccstring = rccFrom(NULL, 0, str);
-	if (rccstring) {
-		if (*rccstring && (reencoded = rccToCharset(NULL, "UTF-8", rccstring))) {
-		    free(str);
-		    free(rccstring);
-		    return reencoded;
-		}
-		
-		free (rccstring);
-	}
-	return str;
-}
-#endif
 
 static char *id3v1_fix (const char *str)
 {
@@ -181,8 +157,8 @@ static char *get_tag (struct id3_tag *tag, const char *what)
 			union id3_field *encoding_field = &frame->fields[0];
 			if (((id3_tag_options(tag, 0, 0) & ID3_TAG_OPTION_ID3V1) &&
 						__unique_frame(tag, frame))
-					|| ((options_get_int ("EnforceTagsEncoding") && 
-							(id3_field_gettextencoding((encoding_field)) 
+					|| ((options_get_int ("EnforceTagsEncoding") &&
+							(id3_field_gettextencoding((encoding_field))
 							 == ID3_FIELD_TEXTENCODING_ISO_8859_1))))
 			{
 				char *t;
@@ -191,7 +167,7 @@ static char *get_tag (struct id3_tag *tag, const char *what)
 
 #ifdef HAVE_RCC
 				if (options_get_int("UseRCC"))
-					comm = do_rcc (comm);
+					comm = rcc_reencode (comm);
 				else {
 #endif /* HAVE_RCC */
 					t = comm;
@@ -227,7 +203,7 @@ static int count_time_internal (struct mp3_data *data)
 	  1) Constant bitrate: One frame can provide the information
 		 needed: # of frames and duration. Just see how long it
 		 is and do the division.
-	  2) Variable bitrate: Xing tag. It provides the number of 
+	  2) Variable bitrate: Xing tag. It provides the number of
 		 frames. Each frame has the same number of samples, so
 		 just use that.
 	  3) All: Count up the frames and duration of each frame
@@ -236,7 +212,7 @@ static int count_time_internal (struct mp3_data *data)
 	*/
 
 	while (1) {
-		
+
 		/* Fill the input buffer if needed */
 		if (data->stream.buffer == NULL ||
 			data->stream.error == MAD_ERROR_BUFLEN) {
@@ -267,7 +243,7 @@ static int count_time_internal (struct mp3_data *data)
 				is_vbr = 1;
 
 				debug ("Has XING header");
-				
+
 				if (xing.flags & XING_FRAMES) {
 					has_xing = 1;
 					num_frames = xing.frames;
@@ -276,7 +252,7 @@ static int count_time_internal (struct mp3_data *data)
 				debug ("XING header doesn't contain number of "
 						"frames.");
 			}
-		}				
+		}
 
 		/* Test the first n frames to see if this is a VBR file */
 		if (!is_vbr && !(num_frames > 20)) {
@@ -288,7 +264,7 @@ static int count_time_internal (struct mp3_data *data)
 			else
 				bitrate = header.bitrate;
 		}
-		
+
 		/* We have to assume it's not a VBR file if it hasn't already
 		 * been marked as one and we've checked n frames for different
 		 * bitrates */
@@ -296,7 +272,7 @@ static int count_time_internal (struct mp3_data *data)
 			debug ("Fixed rate MP3");
 			break;
 		}
-			
+
 		mad_timer_add (&duration, header.duration);
 	}
 
@@ -306,7 +282,7 @@ static int count_time_internal (struct mp3_data *data)
 	if (!is_vbr) {
 		/* time in seconds */
 		double time = (data->size * 8.0) / (header.bitrate);
-		
+
 		double timefrac = (double)time - ((long)(time));
 
 		/* samples per frame */
@@ -321,7 +297,7 @@ static int count_time_internal (struct mp3_data *data)
 		mad_timer_set(&duration, (long)time, (long)(timefrac*100),
 				100);
 	}
-		
+
 	else if (has_xing) {
 		mad_timer_multiply (&header.duration, num_frames);
 		duration = header.duration;
@@ -335,7 +311,7 @@ static int count_time_internal (struct mp3_data *data)
 
 	if (data->avg_bitrate == -1
 			&& mad_timer_count(duration, MAD_UNITS_SECONDS) > 0) {
-		data->avg_bitrate = data->size 
+		data->avg_bitrate = data->size
 				/ mad_timer_count(duration, MAD_UNITS_SECONDS) * 8;
 	}
 
@@ -366,17 +342,17 @@ static struct mp3_data *mp3_open_internal (const char *file,
 	data->io_stream = io_open (file, buffered);
 	if (io_ok(data->io_stream)) {
 		data->ok = 1;
-		
+
 		data->size = io_file_size (data->io_stream);
 
 		mad_stream_init (&data->stream);
 		mad_frame_init (&data->frame);
 		mad_synth_init (&data->synth);
 
-		if (options_get_int("Mp3IgnoreCRCErrors"))
+		if (options_get_int ("MP3IgnoreCRCErrors"))
 				mad_stream_options (&data->stream,
 					MAD_OPTION_IGNORECRC);
-		
+
 		data->duration = count_time_internal (data);
 		mad_frame_mute (&data->frame);
 		data->stream.next_frame = NULL;
@@ -431,10 +407,10 @@ static void *mp3_open_stream (struct io_stream *stream)
 	mad_frame_init (&data->frame);
 	mad_synth_init (&data->synth);
 
-	if (options_get_int("Mp3IgnoreCRCErrors"))
+	if (options_get_int ("MP3IgnoreCRCErrors"))
 			mad_stream_options (&data->stream,
 				MAD_OPTION_IGNORECRC);
-	
+
 	return data;
 }
 
@@ -458,16 +434,16 @@ static int count_time (const char *file)
 {
 	struct mp3_data *data;
 	int time;
-	
+
 	debug ("Processing file %s", file);
 
 	data = mp3_open_internal (file, 0);
-	
+
 	if (!data->ok)
 		time = -1;
 	else
 		time = data->duration;
-	
+
 	mp3_close (data);
 
 	return time;
@@ -482,7 +458,7 @@ static void mp3_info (const char *file_name, struct file_tags *info,
 		struct id3_tag *tag;
 		struct id3_file *id3file;
 		char *track = NULL;
-		
+
 		id3file = id3_file_open (file_name, ID3_FILE_MODE_READONLY);
 		if (!id3file)
 			return;
@@ -492,10 +468,10 @@ static void mp3_info (const char *file_name, struct file_tags *info,
 			info->title = get_tag (tag, ID3_FRAME_TITLE);
 			info->album = get_tag (tag, ID3_FRAME_ALBUM);
 			track = get_tag (tag, ID3_FRAME_TRACK);
-			
+
 			if (track) {
 				char *end;
-				
+
 				info->track = strtol (track, &end, 10);
 				if (end == track)
 					info->track = -1;
@@ -537,10 +513,10 @@ static int put_output (char *buf, int buf_len, struct mad_pcm *pcm,
 		logit ("PCM buffer to small!");
 		return 0;
 	}
-	
+
 	while (nsamples--) {
 		long sample0 = round_sample (*left_ch++);
-		
+
 		buf[0] = 0;
 		buf[1] = sample0;
 		buf[2] = sample0 >> 8;
@@ -549,7 +525,7 @@ static int put_output (char *buf, int buf_len, struct mad_pcm *pcm,
 
 		if (MAD_NCHANNELS(header) == 2) {
 			long sample1;
-			
+
 			sample1 = round_sample (*right_ch++);
 
 			buf[0] = 0;
@@ -595,7 +571,7 @@ static int mp3_decode (void *void_data, char *buf, int buf_len,
 			if (!fill_buff(data))
 				return 0;
 		}
-		
+
 		if (mad_frame_decode (&data->frame, &data->stream)) {
 			if (flush_id3_tag (data))
 				continue;
@@ -638,10 +614,10 @@ static int mp3_decode (void *void_data, char *buf, int buf_len,
 					" frequency couldn't be read.");
 			return 0;
 		}
-		
+
 		sound_params->channels = MAD_NCHANNELS(&data->frame.header);
 		sound_params->fmt = SFMT_S32 | SFMT_LE;
-		
+
 		/* Change of the bitrate? */
 		if (data->frame.header.bitrate != data->bitrate) {
 			if ((data->bitrate = data->frame.header.bitrate) == 0) {
@@ -652,7 +628,7 @@ static int mp3_decode (void *void_data, char *buf, int buf_len,
 				return 0;
 			}
 		}
-		
+
 		mad_synth_frame (&data->synth, &data->frame);
 		mad_stream_sync (&data->stream);
 
@@ -666,10 +642,10 @@ static int mp3_seek (void *void_data, int sec)
 	struct mp3_data *data = (struct mp3_data *)void_data;
 	int new_position;
 
+	assert (sec >= 0);
+
 	if (sec >= data->duration)
 		return -1;
-	else if (sec < 0)
-		sec = 0;
 
 	new_position = ((double) sec /
 			(double) data->duration) * data->size;
@@ -680,12 +656,12 @@ static int mp3_seek (void *void_data, int sec)
 		new_position = 0;
 	else if (new_position >= data->size)
 		return -1;
-	
+
 	if (io_seek(data->io_stream, new_position, SEEK_SET) == -1) {
 		logit ("seek to %d failed", new_position);
 		return -1;
 	}
-	
+
 	data->stream.error = MAD_ERROR_BUFLEN;
 
 	mad_frame_mute (&data->frame);
@@ -716,30 +692,33 @@ static int mp3_get_avg_bitrate (void *void_data)
 static int mp3_get_duration (void *void_data)
 {
 	struct mp3_data *data = (struct mp3_data *)void_data;
-	
+
 	return data->duration;
 }
 
 static void mp3_get_name (const char *file, char buf[4])
 {
-	char *ext = ext_pos (file);
-	
-	if (!strcasecmp(ext, "mp3"))
+	char *ext;
+
+	ext = ext_pos (file);
+	if (!strcasecmp (ext, "mp3"))
 		strcpy (buf, "MP3");
-	else if (!strcasecmp(ext, "mp2"))
+	else if (!strcasecmp (ext, "mp2"))
 		strcpy (buf, "MP2");
-	else if (!strcasecmp(ext, "mp2"))
+	else if (!strcasecmp (ext, "mp1"))
 		strcpy (buf, "MP1");
-	else if (!strcasecmp(ext, "mpga"))
+	else if (!strcasecmp (ext, "mpga"))
 		strcpy (buf, "MPG");
+	else
+		strcpy (buf, "MPx");
 }
 
 static int mp3_our_format_ext (const char *ext)
 {
-	return !strcasecmp(ext, "mp3")
-		|| !strcasecmp(ext, "mpga")
-		|| !strcasecmp(ext, "mp2")
-		|| !strcasecmp(ext, "mp1");
+	return !strcasecmp (ext, "mp3")
+		|| !strcasecmp (ext, "mpga")
+		|| !strcasecmp (ext, "mp2")
+		|| !strcasecmp (ext, "mp1");
 }
 
 static void mp3_get_error (void *prv_data, struct decoder_error *error)
@@ -758,7 +737,8 @@ static struct io_stream *mp3_get_stream (void *prv_data)
 
 static int mp3_our_mime (const char *mime)
 {
-	return !strcmp(mime, "audio/mpeg");
+	return !strcasecmp (mime, "audio/mpeg")
+		|| !strncasecmp (mime, "audio/mpeg;", 11);
 }
 
 static int mp3_can_decode (struct io_stream *stream)
@@ -782,7 +762,7 @@ static int mp3_can_decode (struct io_stream *stream)
 		while ((dec_res = mad_header_decode(&header, &stream)) == -1
 				&& MAD_RECOVERABLE(stream.error))
 			;
-		
+
 		return dec_res != -1 ? 1 : 0;
 	}
 
@@ -791,23 +771,6 @@ static int mp3_can_decode (struct io_stream *stream)
 
 static void mp3_init ()
 {
-#ifdef HAVE_RCC
-	rcc_class classes[] = {
-		{ "input", RCC_CLASS_STANDARD, NULL, NULL, "Input Encoding",
-			0 },
-		{ "output", RCC_CLASS_KNOWN, NULL, NULL,
-			"Output Encoding", 0 },
-		{ NULL, 0, NULL, NULL, NULL, 0 }
-	};
-
-	rccInit ();
-	rccInitDefaultContext(NULL, 0, 0, classes, 0);
-	rccLoad(NULL, "moc");
-	rccSetOption(NULL, RCC_OPTION_TRANSLATE,
-			RCC_OPTION_TRANSLATE_SKIP_PARRENT);
-	rccSetOption(NULL, RCC_OPTION_AUTODETECT_LANGUAGE, 1);
-#endif
-	
 	iconv_id3_fix = iconv_open ("UTF-8",
 			options_get_str("ID3v1TagsEncoding"));
 		if (iconv_id3_fix == (iconv_t)(-1))
@@ -816,10 +779,6 @@ static void mp3_init ()
 
 static void mp3_destroy ()
 {
-#ifdef HAVE_RCC
-	rccFree ();
-#endif
-	
 	if (iconv_close(iconv_id3_fix) == -1)
 		logit ("iconv_close() failed: %s", strerror(errno));
 }
@@ -839,7 +798,6 @@ static struct decoder mp3_decoder = {
 	mp3_get_duration,
 	mp3_get_error,
 	mp3_our_format_ext,
-	NULL,
 	mp3_our_mime,
 	mp3_get_name,
 	NULL,

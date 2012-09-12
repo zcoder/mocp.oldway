@@ -22,17 +22,19 @@
 #include "config.h"
 #endif
 
-#define DEBUG
-
 #include <ctype.h> // for toupper
 #include <string.h>
+#include <assert.h>
+#include <libmodplug/modplug.h>
+
+#define DEBUG
+
+#include "common.h"
 #include "io.h"
 #include "decoder.h"
 #include "log.h"
 #include "files.h"
-#include "common.h"
 #include "options.h"
-#include <libmodplug/modplug.h>
 
 // Limiting maximum size for loading a module was suggested by Damian.
 // I've never seen such a large module so this should be a safe limit...
@@ -110,11 +112,12 @@ static struct modplug_data *make_modplug_data(const char *file) {
   decoder_error_init (&data->error);
 
   struct io_stream *s = io_open(file, 0);
-  if(s==NULL) {
+  if(!io_ok(s)) {
     decoder_error(&data->error, ERROR_FATAL, 0, "Can't open file: %s", file);
+    io_close(s);
     return data;
   }
-  
+
   ssize_t size = io_file_size(s);
 
 //  if(size>MAXMODSIZE) {
@@ -122,7 +125,7 @@ static struct modplug_data *make_modplug_data(const char *file) {
 //    decoder_error(&data->error, ERROR_FATAL, 0, "Module to big! 42M ain't enough ? (%s)", file);
 //    return data;
 //  }
-  
+
   data->filedata = (char *)xmalloc(size);
 
   io_read(s, data->filedata, size);
@@ -152,7 +155,7 @@ static void *modplug_open (const char *file)
   struct modplug_data *data = make_modplug_data(file);
 
   if(data->modplugfile) {
-    data->length = ModPlug_GetLength(data->modplugfile); 
+    data->length = ModPlug_GetLength(data->modplugfile);
   }
 
 #ifdef DEBUG
@@ -172,6 +175,8 @@ static void modplug_close (void *void_data)
     ModPlug_Unload(data->modplugfile);
     free(data->filedata);
   }
+
+  decoder_error_clear (&data->error);
   free (data);
 }
 
@@ -193,16 +198,18 @@ static void modplug_info (const char *file_name, struct file_tags *info,
     info->filled |= TAGS_COMMENTS;
   }
 
-  modplug_close(data);  
+  modplug_close(data);
 }
 
 static int modplug_seek (void *void_data, int sec)
 {
   struct modplug_data *data = (struct modplug_data *)void_data;
 
+  assert (sec >= 0);
+
   int ms = sec*1000;
 
-  ms = (ms>data->length)?data->length:((ms<0)?0:ms);
+  ms = MIN(ms,data->length);
 
   ModPlug_Seek(data->modplugfile, ms);
 
@@ -213,7 +220,7 @@ static int modplug_decode (void *void_data, char *buf, int buf_len,
 		struct sound_params *sound_params)
 {
   struct modplug_data *data = (struct modplug_data *)void_data;
-  
+
   sound_params->channels = settings.mChannels;
   sound_params->rate = settings.mFrequency;
   sound_params->fmt = ((settings.mBits==16)?SFMT_S16:(settings.mBits==8)?SFMT_S8:SFMT_S32) | SFMT_NE;
@@ -232,57 +239,53 @@ static int modplug_get_duration (void *void_data)
   return data->length/1000;
 }
 
-
-
 static void modplug_get_name (const char *file, char buf[4])
 {
-  char *ext = ext_pos (file);
+  size_t ix;
+  char *ext;
 
-  strncpy(buf, ext, 3);
-
-  unsigned int i;
-
-  for(i=0;i<strlen(ext);i++)
-    buf[i]=toupper(buf[i]);
+  ext = ext_pos (file);
+  strncpy (buf, ext, 3);
+  for (ix = 0; ix < strlen (buf); ix += 1)
+    buf[ix] = toupper (buf[ix]);
 }
 
 static int modplug_our_format_ext(const char *ext)
 {
   return
-    !strcasecmp(ext, "NONE") ||
-    !strcasecmp(ext, "MOD") ||
-    !strcasecmp(ext, "S3M") ||
-    !strcasecmp(ext, "XM") ||
-    !strcasecmp(ext, "MED") ||
-    !strcasecmp(ext, "MTM") ||
-    !strcasecmp(ext, "IT") ||
-    !strcasecmp(ext, "669") ||
-    !strcasecmp(ext, "ULT") ||
-    !strcasecmp(ext, "STM") ||
-    !strcasecmp(ext, "FAR") ||
-    // WAVs should be processed by libsndfile
-    //!strcasecmp(ext, "WAV") ||
-    !strcasecmp(ext, "AMF") ||
-    !strcasecmp(ext, "AMS") ||
-    !strcasecmp(ext, "DSM") ||
-    !strcasecmp(ext, "MDL") ||
-    !strcasecmp(ext, "OKT") ||
+    !strcasecmp (ext, "NONE") ||
+    !strcasecmp (ext, "MOD") ||
+    !strcasecmp (ext, "S3M") ||
+    !strcasecmp (ext, "XM") ||
+    !strcasecmp (ext, "MED") ||
+    !strcasecmp (ext, "MTM") ||
+    !strcasecmp (ext, "IT") ||
+    !strcasecmp (ext, "669") ||
+    !strcasecmp (ext, "ULT") ||
+    !strcasecmp (ext, "STM") ||
+    !strcasecmp (ext, "FAR") ||
+    !strcasecmp (ext, "WAV") ||
+    !strcasecmp (ext, "AMF") ||
+    !strcasecmp (ext, "AMS") ||
+    !strcasecmp (ext, "DSM") ||
+    !strcasecmp (ext, "MDL") ||
+    !strcasecmp (ext, "OKT") ||
     // modplug can do MIDI but not in this form...
-    //!strcasecmp(ext, "MID") ||
-    !strcasecmp(ext, "DMF") ||
-    !strcasecmp(ext, "PTM") ||
-    !strcasecmp(ext, "DBM") ||
-    !strcasecmp(ext, "MT2") ||
-    !strcasecmp(ext, "AMF0") ||
-    !strcasecmp(ext, "PSM") ||
-    !strcasecmp(ext, "J2B") ||
-    !strcasecmp(ext, "UMX");
+    //!strcasecmp (ext, "MID") ||
+    !strcasecmp (ext, "DMF") ||
+    !strcasecmp (ext, "PTM") ||
+    !strcasecmp (ext, "DBM") ||
+    !strcasecmp (ext, "MT2") ||
+    !strcasecmp (ext, "AMF0") ||
+    !strcasecmp (ext, "PSM") ||
+    !strcasecmp (ext, "J2B") ||
+    !strcasecmp (ext, "UMX");
 }
 
 static void modplug_get_error (void *prv_data, struct decoder_error *error)
 {
   struct modplug_data *data = (struct modplug_data *)prv_data;
-  
+
   decoder_error_copy (error, &data->error);
 }
 
@@ -302,7 +305,6 @@ static struct decoder modplug_decoder =
   modplug_get_duration,
   modplug_get_error,
   modplug_our_format_ext,
-  NULL,
   NULL,
   modplug_get_name,
   NULL,
@@ -335,14 +337,13 @@ struct decoder *plugin_init ()
   settings.mChannels = options_get_int("ModPlug_Channels");
   settings.mBits = options_get_int("ModPlug_Bits");
   settings.mFrequency = options_get_int("ModPlug_Frequency");
-  settings.mReverbDepth = options_get_int("ModPlug_ReverbDepth"); 
-  settings.mReverbDelay = options_get_int("ModPlug_ReverbDelay"); 
-  settings.mBassAmount = options_get_int("ModPlug_BassAmount"); 
-  settings.mBassRange = options_get_int("ModPlug_BassRange"); 
+  settings.mReverbDepth = options_get_int("ModPlug_ReverbDepth");
+  settings.mReverbDelay = options_get_int("ModPlug_ReverbDelay");
+  settings.mBassAmount = options_get_int("ModPlug_BassAmount");
+  settings.mBassRange = options_get_int("ModPlug_BassRange");
   settings.mSurroundDepth = options_get_int("ModPlug_SurroundDepth");
   settings.mSurroundDelay = options_get_int("ModPlug_SurroundDelay");
-  settings.mLoopCount = options_get_int("ModPlug_LoopCount"); 
+  settings.mLoopCount = options_get_int("ModPlug_LoopCount");
   ModPlug_SetSettings(&settings);
   return &modplug_decoder;
 }
-

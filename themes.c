@@ -26,9 +26,9 @@
 #include <strings.h>
 #include <errno.h>
 
+#include "common.h"
 #include "interface.h"
 #include "themes.h"
-#include "common.h"
 #include "files.h"
 #include "options.h"
 
@@ -155,7 +155,7 @@ static void theme_parse_error (const int line, const char *msg)
 /* Find the index of a color element by name. Return CLR_WRONG if not found. */
 static enum color_index find_color_element_name (const char *name)
 {
-	int i;
+	unsigned int i;
 	static struct
 	{
 		char *name;
@@ -197,11 +197,13 @@ static enum color_index find_color_element_name (const char *name)
 		{ "message",		CLR_MESSAGE },
 		{ "plist_time",		CLR_PLIST_TIME }
 	};
+
 	assert (name != NULL);
 
-	for (i = 0; i < (int)(sizeof(color_tab)/sizeof(color_tab[0])); i++)
+	for (i = 0; i < (sizeof(color_tab)/sizeof(color_tab[0])); i++) {
 		if (!strcasecmp(color_tab[i].name, name))
 			return color_tab[i].idx;
+	}
 
 	return CLR_WRONG;
 }
@@ -209,7 +211,7 @@ static enum color_index find_color_element_name (const char *name)
 /* Find the curses color by name. Return -1 if the color is unknown. */
 static short find_color_name (const char *name)
 {
-	int i;
+	unsigned int i;
 	static struct
 	{
 		char *name;
@@ -226,11 +228,12 @@ static short find_color_name (const char *name)
 		{ "default",	COLOR_DEFAULT },
 		{ "grey",	COLOR_GREY }
 	};
-	
-	for (i = 0; i < (int)(sizeof(color_tab)/sizeof(color_tab[0])); i++)
+
+	for (i = 0; i < (sizeof(color_tab)/sizeof(color_tab[0])); i++) {
 		if (!strcasecmp(color_tab[i].name, name))
 			return color_tab[i].color;
-	
+	}
+
 	return -1;
 }
 
@@ -254,7 +257,7 @@ static int new_colordef (const int line_num, const char *name, const short red,
 static char *find_theme_file (const char *name)
 {
 	static char path[PATH_MAX];
-	
+
 	path[sizeof(path)-1] = 0;
 	if (name[0] == '/') {
 
@@ -271,7 +274,7 @@ static char *find_theme_file (const char *name)
 		interface_fatal ("Theme path too long!");
 	if (file_exists(path))
 		return path;
-	
+
 	/* Try the system directory */
 	if (snprintf(path, sizeof(path), "%s/%s", SYSTEM_THEMES_DIR,
 				name) >= (int)sizeof(path))
@@ -326,7 +329,7 @@ static int parse_theme_element (const int line_num, const char *name,
 					"of line");
 			return 0;
 		}
-		
+
 		attr = strtok (attributes, ",");
 
 		do {
@@ -430,12 +433,11 @@ static int parse_theme_colordef (const int line_num,
 			theme_parse_error (line_num, "expected '='");
 		return 0;
 	}
-	
-	if ((red = parse_rgb_color_value(line_num, errors_are_fatal) == -1)
-			|| (green = parse_rgb_color_value(line_num,
-					errors_are_fatal)) == -1
-			|| (blue = parse_rgb_color_value(line_num,
-					errors_are_fatal)) == -1)
+
+	red = parse_rgb_color_value (line_num, errors_are_fatal);
+	green = parse_rgb_color_value (line_num, errors_are_fatal);
+	blue = parse_rgb_color_value (line_num, errors_are_fatal);
+	if (red == -1 || green == -1 || blue == -1)
 		return 0;
 
 	if (!new_colordef(line_num, name, red, green, blue, errors_are_fatal))
@@ -445,11 +447,11 @@ static int parse_theme_colordef (const int line_num,
 }
 
 /* The lines should be in format:
- * 
+ *
  * ELEMENT = FOREGROUND BACKGROUND [ATTRIBUTE[,ATTRIBUTE,..]]
  * or:
  * colordef COLORNAME = RED GREEN BLUE
- * 
+ *
  * Blank lines and beginning with # are ignored, see example_theme.
  *
  * On error: if errors_are_fatal is true, interface_fatal() is invoked,
@@ -458,7 +460,7 @@ static int parse_theme_line (const int line_num, char *line,
 		const int errors_are_fatal)
 {
 	char *name;
-	
+
 	if (line[0] == '#' || !(name = strtok(line, " \t"))) {
 
 		/* empty line or a comment */
@@ -488,7 +490,7 @@ static int load_color_theme (const char *name, const int errors_are_fatal)
 
 	while ((line = read_line(file))) {
 		int res;
-		
+
 		line_num++;
 		res = parse_theme_line (line_num, line, errors_are_fatal);
 		free (line);
@@ -511,7 +513,7 @@ static void reset_colors_table ()
 		colors[i] = -1;
 }
 
-void theme_init (const int has_xterm)
+void theme_init (bool has_xterm)
 {
 	reset_colors_table ();
 

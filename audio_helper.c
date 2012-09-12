@@ -1,6 +1,17 @@
-#include "audio_helper.h"
+#ifdef HAVE_CONFIG_H
+  #include "config.h"
+#endif
 
+#include "common.h"
+#include "audio_helper.h"
 #include "audio.h"
+
+#define swap_32bit_endianness(i32) \
+  ( ((i32&0x000000FF)<<24) | ((i32&0x0000FF00)<<8)| \
+  ((i32&0x00FF0000)>>8) | ((i32&0xFF000000)>>24) )
+
+#define swap_16bit_endianness(i16) \
+  ( ((i16&0x00FF)<<8) | ((i16&0xFF00)>>8) )
 
 int sample_size(long sfmt)
 {
@@ -23,21 +34,21 @@ int sample_size(long sfmt)
   }
 }
 
-void swap_endianess_32(int32_t *buf, size_t size)
+void swap_endianness_32(int32_t *buf, size_t size)
 {
   size_t i;
   for(i=0; i<size; i++)
   {
-    buf[i] = swap_32bit_endianess(buf[i]);
+    buf[i] = swap_32bit_endianness(buf[i]);
   }
 }
 
-void swap_endianess_16(int16_t *buf, size_t size)
+void swap_endianness_16(int16_t *buf, size_t size)
 {
   size_t i;
   for(i=0; i<size; i++)
   {
-    buf[i] = swap_16bit_endianess(buf[i]);
+    buf[i] = swap_16bit_endianness(buf[i]);
   }
 }
 

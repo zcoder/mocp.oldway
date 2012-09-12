@@ -33,8 +33,8 @@
 
 /*#define DEBUG*/
 
-#include "decoder.h"
 #include "common.h"
+#include "decoder.h"
 #include "audio.h"
 #include "log.h"
 
@@ -119,7 +119,7 @@ static void *process_header (struct spx_data *data)
 	callback.data = &data->stereo;
 	speex_decoder_ctl(st, SPEEX_SET_HANDLER, &callback);
 	speex_decoder_ctl(st, SPEEX_SET_SAMPLING_RATE, &data->header->rate);
-	
+
 	return st;
 }
 
@@ -130,8 +130,9 @@ static int read_speex_header (struct spx_data *data)
 	int stream_init = 0;
 	char *buf;
 	int nb_read;
+	int header_packets = 2;
 
-	while (packet_count < 2) {
+	while (packet_count < header_packets) {
 
 		/* Get the ogg buffer for writing */
 		buf = ogg_sync_buffer (&data->oy, 200);
@@ -151,7 +152,7 @@ static int read_speex_header (struct spx_data *data)
 					"Can't open speex header");
 			return 0;
 		}
-		
+
 		ogg_sync_wrote (&data->oy, nb_read);
 
 		/* Loop for all complete pages we got (most likely only one) */
@@ -169,7 +170,7 @@ static int read_speex_header (struct spx_data *data)
 			/* Extract all available packets FIXME: EOS! */
 			while (ogg_stream_packetout(&data->os, &data->op)
 					== 1) {
-				
+
 				/* If first packet, process as Speex header */
 				if (packet_count == 0) {
 					data->st = process_header (data);
@@ -183,7 +184,7 @@ static int read_speex_header (struct spx_data *data)
 					data->nchannels
 						= data->header->nb_channels;
 					data->frames_per_packet
-						= data->header->frames_per_packet; 
+						= data->header->frames_per_packet;
 					/*data->vbr = data->header->vbr; */
 
 					if (!data->frames_per_packet)
@@ -195,18 +196,19 @@ static int read_speex_header (struct spx_data *data)
 							sizeof(int16_t));
 					data->output_start = 0;
 					data->output_left = 0;
+
+					header_packets += data->header->extra_headers;
 				}
 				else if (packet_count == 1) {
 					data->comment_packet_len
 						= data->op.bytes;
 					data->comment_packet = xmalloc (
-							sizeof(char) * 
+							sizeof(char) *
 							data->comment_packet_len);
 					memcpy (data->comment_packet,
 							data->op.packet,
 							data->comment_packet_len);
 				}
-				/* FIXME: ignore extra headers */
 
 				packet_count++;
 			}
@@ -219,19 +221,22 @@ static int read_speex_header (struct spx_data *data)
 static struct spx_data *spx_open_internal (struct io_stream *stream)
 {
 	struct spx_data *data;
-	
+	SpeexStereoState stereo = SPEEX_STEREO_STATE_INIT;
+
 	data = (struct spx_data *)xmalloc (sizeof(struct spx_data));
-	
+
 	decoder_error_init (&data->error);
 	data->stream = stream;
-	
+
 	data->st = NULL;
+	data->stereo = stereo;
+	data->header = NULL;
 	data->output = NULL;
 	data->comment_packet = NULL;
 	data->bitrate = -1;
 	ogg_sync_init (&data->oy);
 	speex_bits_init (&data->bits);
-	
+
 	if (!read_speex_header(data)) {
 		ogg_sync_clear (&data->oy);
 		speex_bits_destroy (&data->bits);
@@ -239,7 +244,7 @@ static struct spx_data *spx_open_internal (struct io_stream *stream)
 	}
 	else
 		data->ok = 1;
-	
+
 	return data;
 }
 
@@ -249,17 +254,19 @@ static void *spx_open (const char *file)
 	struct spx_data *data;
 
 	stream = io_open (file, 1);
-	if (io_ok(stream))
+	if (io_ok (stream))
 		data = spx_open_internal (stream);
 	else {
 		data = (struct spx_data *)xmalloc (sizeof(struct spx_data));
+		data->stream = NULL;
 		decoder_error_init (&data->error);
 		decoder_error (&data->error, ERROR_STREAM, 0,
 				"Can't open file: %s",
-				io_strerror(data->stream));
+				io_strerror(stream));
+        io_close (stream);
 		data->ok = 0;
 	}
-	
+
 	return data;
 }
 
@@ -293,11 +300,12 @@ static void spx_close (void *prv_data)
 		speex_bits_destroy (&data->bits);
 		ogg_stream_clear (&data->os);
 		ogg_sync_clear (&data->oy);
-		io_close (data->stream);
 	}
-	
+
+	io_close (data->stream);
 	decoder_error_clear (&data->error);
 
+	free (data->header);
 	free (data);
 }
 
@@ -392,14 +400,14 @@ static int count_time (struct spx_data *data)
 {
 	unsigned long last_granulepos = 0;
 
-	/* Seek to somewhere neer the last page */
+	/* Seek to somewhere near the last page */
 	if (io_file_size(data->stream) > 10000) {
 		debug ("Seeking near the end");
 		if (io_seek(data->stream, -10000, SEEK_END) == -1)
-			logit ("Seeking failed, scaning whole file");
+			logit ("Seeking failed, scanning whole file");
 		ogg_sync_reset (&data->oy);
 	}
-	
+
 	/* Read granulepos from the last packet */
 	while (!io_eof(data->stream)) {
 
@@ -437,7 +445,7 @@ static void spx_info (const char *file_name, struct file_tags *tags,
 	struct io_stream *s;
 
 	s = io_open (file_name, 0);
-	if (io_ok(s)) {
+	if (io_ok (s)) {
 		struct spx_data *data = spx_open_internal (s);
 
 		if (data->ok) {
@@ -449,6 +457,8 @@ static void spx_info (const char *file_name, struct file_tags *tags,
 
 		spx_close (data);
 	}
+	else
+		io_close (s);
 }
 
 static int spx_seek (void *prv_data ATTR_UNUSED, int sec)
@@ -456,6 +466,8 @@ static int spx_seek (void *prv_data ATTR_UNUSED, int sec)
 	struct spx_data *data = (struct spx_data *)prv_data;
 	ssize_t begin = 0, end;
 	size_t old_pos;
+
+	assert (sec >= 0);
 
 	end = io_file_size (data->stream);
 	if (end == -1)
@@ -557,10 +569,9 @@ static int spx_decode (void *prv_data, char *sound_buf, int nbytes,
 		/* First see if there is anything left in the output buffer and
 		 * empty it out */
 		if (data->output_left > 0) {
-			int to_copy = nbytes / 2;
+			int to_copy = nbytes / sizeof(int16_t);
 
-			to_copy = data->output_left < to_copy
-				? data->output_left : to_copy;
+			to_copy = MIN(data->output_left, to_copy);
 
 			memcpy (out, data->output + data->output_start,
 					to_copy * sizeof(int16_t));
@@ -569,12 +580,13 @@ static int spx_decode (void *prv_data, char *sound_buf, int nbytes,
 			data->output_start += to_copy;
 			data->output_left -= to_copy;
 
-			nbytes -= to_copy * 2;      
-		} else if (ogg_stream_packetout(&data->os, &data->op) == 1) {
+			nbytes -= to_copy * sizeof(int16_t);
+		}
+		else if (ogg_stream_packetout (&data->os, &data->op) == 1) {
 			int16_t *temp_output = data->output;
 
 			/* Decode some more samples */
-			
+
 			/* Copy Ogg packet to Speex bitstream */
 			speex_bits_read_from (&data->bits,
 					(char*)data->op.packet, data->op.bytes);
@@ -652,7 +664,7 @@ static int spx_get_bitrate (void *prv_data)
 static int spx_get_duration (void *prv_data ATTR_UNUSED)
 {
 	/*struct spx_data *data = (struct spx_data *)prv_data;*/
-	
+
 	return -1;
 }
 
@@ -670,7 +682,7 @@ static void spx_get_name (const char *file ATTR_UNUSED, char buf[4])
 
 static int spx_our_format_ext (const char *ext)
 {
-	return !strcasecmp(ext, "spx");
+	return !strcasecmp (ext, "spx");
 }
 
 static void spx_get_error (void *prv_data, struct decoder_error *error)
@@ -682,8 +694,10 @@ static void spx_get_error (void *prv_data, struct decoder_error *error)
 
 static int spx_our_mime (const char *mime)
 {
-	return !strcmp(mime, "audio/x-speex")
-		|| !strcmp(mime, "audio/speex");
+	return !strcasecmp (mime, "audio/x-speex")
+		|| !strncasecmp (mime, "audio/x-speex;", 14)
+		|| !strcasecmp (mime, "audio/speex")
+		|| !strncasecmp (mime, "audio/speex;", 12);
 }
 
 static struct decoder spx_decoder = {
@@ -701,7 +715,6 @@ static struct decoder spx_decoder = {
 	spx_get_duration,
 	spx_get_error,
 	spx_our_format_ext,
-	NULL,
 	spx_our_mime,
 	spx_get_name,
 	NULL /*spx_current_tags*/,

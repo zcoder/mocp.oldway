@@ -30,15 +30,13 @@
 
 #define DEBUG
 
+#include "common.h"
 #include "keys.h"
 #include "interface.h"
 #include "interface_elements.h"
 #include "options.h"
 #include "log.h"
-#include "common.h"
 #include "files.h"
-
-#define CTRL_KEY_CODE	0x1F
 
 /* ^c version of c */
 #ifndef CTRL
@@ -48,7 +46,7 @@
 struct command
 {
 	enum key_cmd cmd;	/* the command */
-	char *name;		/* name of the command (in config file) */
+	char *name;		/* name of the command (in keymap file) */
 	char *help;		/* help string for the command */
 	enum key_context context; /* context - where the command isused */
 	int keys[6];		/* array of keys ended with -1 */
@@ -68,7 +66,7 @@ static struct command commands[] = {
 	{
 		KEY_CMD_GO,
 		"go",
-		"Start playing files (from this file) or go to directory",
+		"Start playing at this file or go to this directory",
 		CON_MENU,
 		{ '\n',	-1 },
 		1
@@ -188,7 +186,7 @@ static struct command commands[] = {
 	{
 		KEY_CMD_TOGGLE_AUTO_NEXT,
 		"toggle_auto_next",
-		"Toggle AutoNext option",
+		"Toggle AutoNext",
 		CON_MENU,
 		{ 'X', -1 },
 		1
@@ -207,6 +205,14 @@ static struct command commands[] = {
 		"Switch between layouts",
 		CON_MENU,
 		{ 'l', -1 },
+		1
+	},
+	{
+		KEY_CMD_TOGGLE_PERCENT,
+		"toggle_percent",
+		"Switch on/off play time percentage",
+		CON_MENU,
+		{ -1 },
 		1
 	},
 	{
@@ -236,7 +242,7 @@ static struct command commands[] = {
 	{
 		KEY_CMD_PLIST_REMOVE_DEAD_ENTRIES,
 		"remove_dead_entries",
-		"Remove all playlist entries that point to non-existent files",
+		"Remove playlist entries for non-existent files",
 		CON_MENU,
 		{ 'Y', -1 },
 		1
@@ -348,7 +354,7 @@ static struct command commands[] = {
 	{
 		KEY_CMD_MENU_SEARCH,
 		"search_menu",
-		"Search the menu.",
+		"Search the menu",
 		CON_MENU,
 		{ 'g', '/', -1 },
 		1
@@ -388,7 +394,7 @@ static struct command commands[] = {
 	{
 		KEY_CMD_GO_TO_PLAYING_FILE,
 		"go_to_playing_file",
-		"Go to a directory where the currently played file is",
+		"Go to the directory containing the currently played file",
 		CON_MENU,
 		{ 'G', -1 },
 		1
@@ -891,10 +897,10 @@ enum key_cmd get_key_cmd (const enum key_context context, const struct iface_key
 {
 	int k;
 	unsigned int i;
-	
+
 	k = (key->type == IFACE_KEY_CHAR) ? key->key.ucs : key->key.func;
 
-	for (i = 0; i < sizeof(commands)/sizeof(commands[0]); i++)
+	for (i = 0; i < COMMANDS_NUM; i++)
 		if (commands[i].context == context) {
 			int j = 0;
 
@@ -902,7 +908,7 @@ enum key_cmd get_key_cmd (const enum key_context context, const struct iface_key
 				if (commands[i].keys[j++] == k)
 					return commands[i].cmd;
 		}
-	
+
 	return KEY_CMD_WRONG;
 }
 
@@ -911,7 +917,7 @@ static char *find_keymap_file ()
 {
 	char *file;
 	static char path[PATH_MAX];
-	
+
 	if ((file = options_get_str("Keymap"))) {
 		if (file[0] == '/') {
 
@@ -942,9 +948,9 @@ static void keymap_parse_error (const int line, const char *msg)
 static int parse_key (const char *symbol)
 {
 	unsigned int i;
-	
+
 	if (strlen(symbol) == 1)
-		
+
 		/* Just a regular char */
 		return symbol[0];
 
@@ -1031,11 +1037,11 @@ static void load_key_map (const char *file_name)
 	FILE *file;
 	char *line;
 	int line_num = 0;
-	
+
 	if (!(file = fopen(file_name, "r")))
 		fatal ("Can't open keymap file: %s", strerror(errno));
 
-	/* Read lines in format: 
+	/* Read lines in format:
 	 * COMMAND = KEY [KEY ...]
 	 * Blank lines and beginning with # are ignored, see example_keymap. */
 	while ((line = read_line(file))) {
@@ -1115,7 +1121,7 @@ static void compare_keys (struct command *cmd1, struct command *cmd2)
 		while (cmd2->keys[j] != -1 && cmd2->keys[j] != cmd1->keys[i])
 			j++;
 		if (cmd2->keys[j] != -1)
-			fatal ("Key %s is defined for %s and %s",
+			fatal ("Key %s is defined for %s and %s!",
 					get_key_name(cmd2->keys[j]),
 					cmd1->name, cmd2->name);
 		i++;
@@ -1163,7 +1169,7 @@ static void make_help ()
 	unsigned int i;
 
 	for (i = 0; i < COMMANDS_NUM; i++) {
-		help[i] = xmalloc (sizeof(char) * 
+		help[i] = xmalloc (sizeof(char) *
 				(HELP_INDENT + strlen(commands[i].help) + 1));
 		strncpy (help[i], get_command_keys(i), HELP_INDENT);
 		if (strlen(help[i]) < HELP_INDENT)

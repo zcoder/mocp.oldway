@@ -25,6 +25,7 @@ enum key_cmd
 	KEY_CMD_TOGGLE_AUTO_NEXT,
 	KEY_CMD_TOGGLE_MENU,
 	KEY_CMD_TOGGLE_LAYOUT,
+	KEY_CMD_TOGGLE_PERCENT,
 	KEY_CMD_PLIST_ADD_FILE,
 	KEY_CMD_PLIST_CLEAR,
 	KEY_CMD_PLIST_ADD_DIR,
@@ -122,6 +123,7 @@ enum key_context
 #endif
 
 #define META_KEY_FLAG	0x80
+#define CTRL_KEY_CODE	0x1F
 
 struct iface_key;
 enum key_cmd get_key_cmd (const enum key_context context, const struct iface_key *key);

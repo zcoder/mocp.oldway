@@ -44,10 +44,10 @@
 
 #define DEBUG
 
+#include "common.h"
 #include "log.h"
 #include "interface_elements.h"
 #include "interface.h"
-#include "common.h"
 #include "lists.h"
 #include "playlist.h"
 #include "playlist_file.h"
@@ -61,6 +61,7 @@
 #include "utf8.h"
 
 #define INTERFACE_LOG	"mocp_client_log"
+#define PLAYLIST_FILE	"playlist.m3u"
 
 #define QUEUE_CLEAR_THRESH 128
 
@@ -69,7 +70,7 @@ static int srv_sock = -1;
 
 static struct plist *playlist = NULL; /* our playlist */
 static struct plist *queue = NULL; /* our queue */
-static struct plist *dir_plist = NULL; /* content of the current directory */
+static struct plist *dir_plist = NULL; /* contents of the current directory */
 
 /* Queue for events coming from the server. */
 static struct event_queue events;
@@ -80,8 +81,8 @@ static char cwd[PATH_MAX] = "";
 /* If the user presses quit, or we receive a termination signal. */
 static volatile enum want_quit want_quit = NO_QUIT;
 
-/* If user presses CTRL-C, set this to 1. This should interrupt long operations
- * that blocks the interface. */
+/* If user presses CTRL-C, set this to 1.  This should interrupt long
+ * operations which block the interface. */
 static volatile int wants_interrupt = 0;
 
 #ifdef SIGWINCH
@@ -134,27 +135,27 @@ static void clear_interrupt ()
 static void send_int_to_srv (const int num)
 {
 	if (!send_int(srv_sock, num))
-		fatal ("Can't send() int to the server.");
+		fatal ("Can't send() int to the server!");
 }
 
 static void send_str_to_srv (const char *str)
 {
 	if (!send_str(srv_sock, str))
-		fatal ("Can't send() string to the server.");
+		fatal ("Can't send() string to the server!");
 }
 
 static void send_item_to_srv (const struct plist_item *item)
 {
 	if (!send_item(srv_sock, item))
-		fatal ("Can't send() item to the server.");
+		fatal ("Can't send() item to the server!");
 }
 
 static int get_int_from_srv ()
 {
 	int num;
-	
+
 	if (!get_int(srv_sock, &num))
-		fatal ("Can't receive value from the server.");
+		fatal ("Can't receive value from the server!");
 
 	return num;
 }
@@ -163,9 +164,9 @@ static int get_int_from_srv ()
 static char *get_str_from_srv ()
 {
 	char *str = get_str (srv_sock);
-	
+
 	if (!str)
-		fatal ("Can't receive string from the server.");
+		fatal ("Can't receive string from the server!");
 
 	return str;
 }
@@ -175,7 +176,7 @@ static struct file_tags *recv_tags_from_srv ()
 	struct file_tags *tags = recv_tags (srv_sock);
 
 	if (!tags)
-		fatal ("Can't receive tags from the server.");
+		fatal ("Can't receive tags from the server!");
 
 	return tags;
 }
@@ -184,9 +185,9 @@ static struct file_tags *recv_tags_from_srv ()
 static int get_int_from_srv_noblock (int *num)
 {
 	enum noblock_io_status st;
-	
+
 	if ((st = get_int_noblock(srv_sock, num)) == NB_IO_ERR)
-		fatal ("Can't receive value from the server.");
+		fatal ("Can't receive value from the server!");
 
 	return st == NB_IO_OK ? 1 : 0;
 }
@@ -196,7 +197,7 @@ static struct plist_item *recv_item_from_srv ()
 	struct plist_item *item;
 
 	if (!(item = recv_item(srv_sock)))
-		fatal ("Can't receive item from the server.");
+		fatal ("Can't receive item from the server!");
 
 	return item;
 }
@@ -204,12 +205,12 @@ static struct plist_item *recv_item_from_srv ()
 static struct tag_ev_response *recv_tags_data_from_srv ()
 {
 	struct tag_ev_response *r;
-	
+
 	r = (struct tag_ev_response *)xmalloc (sizeof(struct tag_ev_response));
 
 	r->file = get_str_from_srv ();
 	if (!(r->tags = recv_tags(srv_sock)))
-		fatal ("Can't receive tags event's data from the server.");
+		fatal ("Can't receive tags event's data from the server!");
 
 	return r;
 }
@@ -217,9 +218,9 @@ static struct tag_ev_response *recv_tags_data_from_srv ()
 static struct move_ev_data *recv_move_ev_data_from_srv ()
 {
 	struct move_ev_data *d;
-	
+
 	if (!(d = recv_move_ev_data(srv_sock)))
-		fatal ("Can't receive move data from the server");
+		fatal ("Can't receive move data from the server!");
 
 	return d;
 }
@@ -250,10 +251,10 @@ static void *get_event_data (const int type)
 static void wait_for_data ()
 {
 	int event;
-	
+
 	do {
 		event = get_int_from_srv ();
-		
+
 		if (event != EV_DATA)
 			event_push (&events, event, get_event_data(event));
 	 } while (event != EV_DATA);
@@ -298,11 +299,11 @@ static int send_tags_request (const char *file, const int tags_sel)
 	}
 }
 
-/* Send all items from this playlist to other clients */
+/* Send all items from this playlist to other clients. */
 static void send_items_to_clients (const struct plist *plist)
 {
 	int i;
-	
+
 	for (i = 0; i < plist->num; i++)
 		if (!plist_deleted(plist, i)) {
 			send_int_to_srv (CMD_CLI_PLIST_ADD);
@@ -386,11 +387,11 @@ static void file_info_block_mark (int *marker)
 static void sync_int_option (const char *name)
 {
 	int value;
-	
+
 	send_int_to_srv (CMD_GET_OPTION);
 	send_str_to_srv (name);
 	value = get_data_int ();
-	option_set_int (name, value);
+	options_set_int (name, value);
 	iface_set_option_state (name, value);
 }
 
@@ -458,9 +459,10 @@ static char *get_curr_file ()
 
 static void update_mixer_value ()
 {
-	int val = get_mixer_value ();
-	
-	iface_set_mixer_value (val >= 0 ? val : 0);
+	int val;
+
+	val = get_mixer_value ();
+	iface_set_mixer_value MAX(val, 0);
 }
 
 static void update_mixer_name ()
@@ -478,8 +480,8 @@ static void update_mixer_name ()
 	update_mixer_value ();
 }
 
-/* Make new cwd path from CWD and this path */
-static void set_cwd (char *path)
+/* Make new cwd path from CWD and this path. */
+static void set_cwd (const char *path)
 {
 	if (path[0] == '/')
 		strcpy (cwd, "/"); /* for absolute path */
@@ -494,14 +496,12 @@ static void set_cwd (char *path)
 /* Try to find the directory we can start and set cwd to it. */
 static void set_start_dir ()
 {
-	if (!getcwd(cwd, sizeof(cwd))) {
+	if (!getcwd(cwd, sizeof (cwd))) {
 		if (errno == ERANGE)
 			fatal ("CWD is larger than PATH_MAX!");
-		else if (!getenv("HOME"))
-			fatal ("$HOME is not set.");
-		strncpy (cwd, getenv("HOME"), sizeof(cwd));
-		if (cwd[sizeof(cwd)-1])
-			fatal ("$HOME is larger than PATH_MAX!");
+		strncpy (cwd, get_home (), sizeof (cwd));
+		if (cwd[sizeof (cwd) - 1])
+			fatal ("Home directory path is longer than PATH_MAX!");
 	}
 }
 
@@ -524,7 +524,7 @@ static int read_last_dir ()
 	return res;
 }
 
-/* Check if dir2 is in dir1 */
+/* Check if dir2 is in dir1. */
 static int is_subdir (const char *dir1, const char *dir2)
 {
 	return !strncmp(dir1, dir2, strlen(dir1)) ? 1 : 0;
@@ -539,13 +539,13 @@ static int sort_dirs_func (const void *a, const void *b)
 {
 	char *sa = *(char **)a;
 	char *sb = *(char **)b;
-	
+
 	/* '../' is always first */
 	if (!strcmp(sa, "../"))
 		return -1;
 	if (!strcmp(sb, "../"))
 		return 1;
-	
+
 	return strcoll (sa, sb);
 }
 
@@ -569,7 +569,7 @@ static int ask_for_tags (const struct plist *plist, const int tags_sel)
 	int req = 0;
 
 	assert (plist != NULL);
-	
+
 	if (tags_sel != 0) {
 		for (i = 0; i < plist->num; i++) {
 			if (!plist_deleted(plist, i) &&
@@ -605,10 +605,10 @@ static void update_item_tags (struct plist *plist, const int num,
 		const struct file_tags *tags)
 {
 	struct file_tags *old_tags = plist_get_tags (plist, num);
-	
+
 	plist_set_tags (plist, num, tags);
 
-	/* Get the time from the old tags if it's not presend in the new tags.
+	/* Get the time from the old tags if it's not present in the new tags.
 	 * FIXME: There is risk, that the file was modified and the time
 	 * from the old tags is not valid. */
 	if (!(tags->filled & TAGS_TIME) && old_tags && old_tags->time != -1)
@@ -621,15 +621,9 @@ static void update_item_tags (struct plist *plist, const int num,
 
 	make_tags_title (plist, num);
 
-	if (options_get_int("ReadTags")) {
-		if (plist->items[num].title_tags)
-			plist->items[num].title = plist->items[num].title_tags;
-		else {
-			if (!plist->items[num].title_file)
-				make_file_title (plist, num, options_get_int(
-							"HideFileExtension"));
-			plist->items[num].title = plist->items[num].title_file;
-		}
+	if (options_get_int ("ReadTags") && !plist->items[num].title_tags) {
+		if (!plist->items[num].title_file)
+			make_file_title (plist, num, options_get_int ("HideFileExtension"));
 	}
 
 	if (old_tags)
@@ -651,7 +645,7 @@ static void ev_file_tags (const struct tag_ev_response *data)
 		update_item_tags (dir_plist, n, data->tags);
 		iface_update_item (IFACE_MENU_DIR, dir_plist, n);
 	}
-	
+
 	if ((n = plist_find_fname(playlist, data->file)) != -1) {
 		update_item_tags (playlist, n, data->tags);
 		iface_update_item (IFACE_MENU_PLIST, playlist, n);
@@ -660,7 +654,7 @@ static void ev_file_tags (const struct tag_ev_response *data)
 	if (curr_file.file && !strcmp(data->file, curr_file.file)) {
 
 		debug ("Tags apply to the currently played file.");
-		
+
 		if (data->tags->time != -1) {
 			curr_file.total_time = data->tags->time;
 			iface_set_total_time (curr_file.total_time);
@@ -720,7 +714,7 @@ static void follow_curr_file ()
 	if (curr_file.file && file_type(curr_file.file) == F_SOUND
 			&& last_menu_move_time <= time(NULL) - 2) {
 		int server_plist_serial = get_server_plist_serial();
-		
+
 		if (server_plist_serial == plist_get_serial(playlist))
 			iface_make_visible (IFACE_MENU_PLIST, curr_file.file);
 		else if (server_plist_serial == plist_get_serial(dir_plist))
@@ -738,8 +732,8 @@ static void update_curr_file ()
 
 	if (!file[0] || curr_file.state == STATE_STOP) {
 
-		/* Nothing is played/paused */
-		
+		/* Nothing is played/paused. */
+
 		file_info_cleanup (&curr_file);
 		file_info_reset (&curr_file);
 		iface_set_played_file (NULL);
@@ -749,16 +743,15 @@ static void update_curr_file ()
 	else if (file[0] &&
 			(!curr_file.file || strcmp(file, curr_file.file))) {
 
-
 		/* played file has changed */
-		
+
 		file_info_cleanup (&curr_file);
 		if (curr_file.block_file && strcmp(file, curr_file.block_file))
 			file_info_block_reset (&curr_file);
 
 		/* The total time could not get reset. */
 		iface_set_total_time (-1);
-		
+
 		iface_set_played_file (file);
 		send_tags_request (file, TAGS_COMMENTS | TAGS_TIME);
 		curr_file.file = file;
@@ -784,10 +777,9 @@ static void update_curr_file ()
 
 		iface_set_played_file (file);
 		iface_set_played_file_title (curr_file.title);
-		/* Try to load the lyrics of the new file */	
+		/* Try to load the lyrics of the new file. */
 		iface_load_lyrics (file);
-		/* Silent seeking makes no sense if the playing file has
-		 * changed */
+		/* Silent seeking makes no sense if the playing file has changed. */
 		silent_seek_pos = -1;
 		iface_set_curr_time (curr_file.curr_time);
 
@@ -820,7 +812,7 @@ static void update_bitrate ()
 static void update_state ()
 {
 	int old_state = curr_file.state;
-	
+
 	/* play | stop | pause */
 	curr_file.state = get_state ();
 	iface_set_state (curr_file.state);
@@ -830,7 +822,7 @@ static void update_state ()
 		silent_seek_pos = -1;
 
 	update_curr_file ();
-	
+
 	update_channels ();
 	update_bitrate ();
 	update_rate ();
@@ -854,29 +846,18 @@ static void event_plist_add (const struct plist_item *item)
 
 		if (needed_tags)
 			send_tags_request (item->file, needed_tags);
-		
-		if (options_get_int("ReadTags")) {
-			make_tags_title (playlist, item_num);
 
-			if (playlist->items[item_num].title_tags)
-				playlist->items[item_num].title =
-					playlist->items[item_num].title_tags;
-			else
-				playlist->items[item_num].title =
-					playlist->items[item_num].title_file;
-		}
-		else {
+		if (options_get_int ("ReadTags"))
+			make_tags_title (playlist, item_num);
+		else
 			make_file_title (playlist, item_num,
-					options_get_int("HideFileExtension"));
-			playlist->items[item_num].title =
-				playlist->items[item_num].title_file;
-		}
+					options_get_int ("HideFileExtension"));
 
 		/* Just calling iface_update_queue_positions (queue, playlist,
 		 * NULL, NULL) is too slow in cases when we receive a large
 		 * number of items from server (e.g., loading playlist w/
-		 * SyncPlaylist on). Since we know the filename in question,
-		 * we try to find it in queue and eventually update the value
+		 * SyncPlaylist on).  Since we know the filename in question,
+		 * we try to find it in queue and eventually update the value.
 		 */
 		if ((i = plist_find_fname(queue, item->file)) != -1) {
 			playlist->items[item_num].queue_pos
@@ -884,7 +865,7 @@ static void event_plist_add (const struct plist_item *item)
 		}
 
 		iface_add_to_plist (playlist, item_num);
-		
+
 		if (waiting_for_plist_load) {
 			if (iface_in_dir_menu())
 				iface_switch_to_plist ();
@@ -910,7 +891,7 @@ static void event_queue_add (const struct plist_item *item)
 static void update_error ()
 {
 	char *err;
-	
+
 	send_int_to_srv (CMD_GET_ERROR);
 	err = get_data_str ();
 	error ("%s", err);
@@ -923,7 +904,7 @@ static void forward_playlist ()
 	int i;
 
 	debug ("Forwarding the playlist...");
-	
+
 	send_int_to_srv (CMD_SEND_PLIST);
 	send_int_to_srv (plist_get_serial(playlist));
 
@@ -990,14 +971,14 @@ static void recv_server_queue (struct plist *queue)
 	} while (!end_of_list);
 }
 
-/* Clear the playlist locally */
+/* Clear the playlist locally. */
 static void clear_playlist ()
 {
 	if (iface_in_plist_menu())
 		iface_switch_to_dir ();
 	plist_clear (playlist);
 	iface_clear_plist ();
-	
+
 	if (!waiting_for_plist_load)
 		interface_message ("The playlist was cleared.");
 	iface_set_status ("");
@@ -1051,7 +1032,7 @@ static void event_queue_del (char *file)
 
 		/* Free the deleted items occasionally.
 		 * QUEUE_CLEAR_THRESH is chosen to be two times
-		 * the initial size of the playlist */
+		 * the initial size of the playlist. */
 		if (plist_count(queue) == 0
 				&& queue->num >= QUEUE_CLEAR_THRESH)
 			plist_clear (queue);
@@ -1086,7 +1067,6 @@ static void event_plist_move (const struct move_ev_data *d)
 }
 
 /* Handle EV_QUEUE_MOVE. */
-/* Unused for now, might be useful later */
 static void event_queue_move (const struct move_ev_data *d)
 {
 	assert (d != NULL);
@@ -1103,8 +1083,8 @@ static void server_event (const int event, void *data)
 
 	switch (event) {
 		case EV_BUSY:
-			interface_fatal ("The server is busy, another client "
-					"is connected.");
+			interface_fatal ("The server is busy; "
+			                 "another client is connected!");
 			break;
 		case EV_CTIME:
 			update_ctime ();
@@ -1113,7 +1093,7 @@ static void server_event (const int event, void *data)
 			update_state ();
 			break;
 		case EV_EXIT:
-			interface_fatal ("The server exited.");
+			interface_fatal ("The server exited!");
 			break;
 		case EV_BITRATE:
 			update_bitrate ();
@@ -1181,7 +1161,7 @@ static void server_event (const int event, void *data)
 		case EV_AUDIO_STOP:
 			break;
 		default:
-			interface_fatal ("Unknown event: 0x%02x", event);
+			interface_fatal ("Unknown event: 0x%02x!", event);
 	}
 
 	free_event_data (event, data);
@@ -1194,7 +1174,7 @@ static void fill_tags (struct plist *plist, const int tags_sel,
 		const int no_iface)
 {
 	int files;
-	
+
 	assert (plist != NULL);
 	assert (tags_sel != 0);
 
@@ -1206,11 +1186,10 @@ static void fill_tags (struct plist *plist, const int tags_sel,
 		int type;
 		void *data;
 
-		/* Event queue is not initialized if there is
-		 * no interface */
+		/* Event queue is not initialized if there is no interface. */
 		if (!no_iface && !event_queue_empty (&events)) {
 			struct event e = *event_get_first (&events);
-			
+
 			type = e.type;
 			data = e.data;
 
@@ -1221,7 +1200,7 @@ static void fill_tags (struct plist *plist, const int tags_sel,
 			type = get_int_from_srv ();
 			data = get_event_data (type);
 		}
-		
+
 		if (type == EV_FILE_TAGS) {
 			struct tag_ev_response *ev
 				= (struct tag_ev_response *)data;
@@ -1234,15 +1213,14 @@ static void fill_tags (struct plist *plist, const int tags_sel,
 			}
 		}
 		else if (no_iface)
-			abort (); /* can't handle other events without the
-				     interface */
-	
+			abort (); /* can't handle other events without the interface */
+
 		if (!no_iface)
 			server_event (type, data);
 		else
 			free_event_data (type, data);
 	}
-	
+
 	iface_set_status ("");
 }
 
@@ -1298,7 +1276,7 @@ static int go_to_dir (const char *dir, const int reload)
 	lists_strs_sort (playlists, sort_strcmp_func);
 
 	ask_for_tags (dir_plist, get_tags_setting());
-	
+
 	if (reload)
 		iface_update_dir_content (IFACE_MENU_DIR, dir_plist, dirs,
 				playlists);
@@ -1309,7 +1287,7 @@ static int go_to_dir (const char *dir, const int reload)
 	lists_strs_free (playlists);
 	if (going_up)
 		iface_set_curr_item_title (last_dir);
-	
+
 	iface_set_title (IFACE_MENU_DIR, cwd);
 	iface_update_queue_positions (queue, NULL, dir_plist, NULL);
 
@@ -1323,8 +1301,8 @@ static int go_to_dir (const char *dir, const int reload)
 static void change_srv_plist_serial ()
 {
 	int serial;
-	
-	do {	
+
+	do {
 		send_int_to_srv (CMD_GET_SERIAL);
 		serial = get_data_int ();
 	 } while (serial == plist_get_serial(playlist)
@@ -1340,10 +1318,9 @@ static void enter_first_dir ();
 static void toggle_menu ()
 {
 	int num;
-	
+
 	if (iface_in_plist_menu()) {
 		if (!cwd[0])
-			
 			/* we were at the playlist from the startup */
 			enter_first_dir ();
 		else
@@ -1368,7 +1345,7 @@ static int go_to_playlist (const char *file, const int load_serial)
 
 	iface_set_status ("Loading playlist...");
 	if (plist_load(playlist, file, cwd, load_serial)) {
-	
+
 		if (options_get_int("SyncPlaylist")) {
 			send_int_to_srv (CMD_LOCK);
 			if (!load_serial)
@@ -1381,7 +1358,7 @@ static int go_to_playlist (const char *file, const int load_serial)
 			send_int_to_srv (CMD_UNLOCK);
 
 			/* We'll use the playlist received from the
-			 * server to be synchronized with other clients
+			 * server to be synchronized with other clients.
 			 */
 			plist_clear (playlist);
 		}
@@ -1407,7 +1384,7 @@ static int go_to_playlist (const char *file, const int load_serial)
 static void enter_first_dir ()
 {
 	static int first_run = 1;
-	
+
 	if (options_get_int("StartInMusicDir")) {
 		char *music_dir;
 
@@ -1428,18 +1405,18 @@ static void enter_first_dir ()
 		else
 			error ("MusicDir is not set");
 	}
-	
+
 	if (!(read_last_dir() && go_to_dir(NULL, 0))) {
 		set_start_dir ();
 		if (!go_to_dir(NULL, 0))
-			interface_fatal ("Can't enter any directory.");
+			interface_fatal ("Can't enter any directory!");
 	}
 
 	first_run = 0;
 }
 
-/* Request the playlist from the server (given by another client). Make the
- * titles. Return 0 if such a list doesn't exists. */
+/* Request the playlist from the server (given by another client).  Make
+ * the titles.  Return 0 if such a list doesn't exist. */
 static int get_server_playlist (struct plist *plist)
 {
 	iface_set_status ("Getting the playlist...");
@@ -1452,7 +1429,7 @@ static int get_server_playlist (struct plist *plist)
 	}
 
 	iface_set_status ("");
-	
+
 	return 0;
 }
 
@@ -1480,70 +1457,112 @@ static void use_server_queue ()
 	iface_set_status ("");
 }
 
-/* Process file names passwd as arguments. */
-static void process_args (char **args, const int num)
+/* Process a single directory argument. */
+static void process_dir_arg (const char *dir)
 {
-	if (num == 1 && !is_url(args[0]) && isdir(args[0]) == 1) {
-		set_cwd (args[0]);
-		if (!go_to_dir(NULL, 0))
-			enter_first_dir ();
-		return;
-	}
-	
-	if (num == 1 && is_plist_file(args[0])) {
-		char path[PATH_MAX+1]; /* the directory where the playlist is */
-		char *slash;
+	set_cwd (dir);
+	if (!go_to_dir (NULL, 0))
+		enter_first_dir ();
+}
 
-		if (args[0][0] == '/')
-			strcpy (path, "/");
-		else if (!getcwd(path, sizeof(path)))
-			interface_fatal ("Can't get CWD: %s", strerror(errno));
+/* Process a single playlist argument. */
+static void process_plist_arg (const char *file)
+{
+	char path[PATH_MAX + 1];   /* the playlist's directory */
+	char *slash;
 
-		resolve_path (path, sizeof(path), args[0]);
-		slash = strrchr (path, '/');
-		assert (slash != NULL);
-		*slash = 0;
-		
-		iface_set_status ("Loading playlist...");
-		plist_load (playlist, args[0], path, 0);
-		iface_set_status ("");
-	}
-	else {
-		int i;
-		char this_cwd[PATH_MAX];
-		
-		if (!getcwd(this_cwd, sizeof(cwd)))
-			interface_fatal ("Can't get CWD: %s.", strerror(errno));
+	if (file[0] == '/')
+		strcpy (path, "/");
+	else if (!getcwd (path, sizeof (path)))
+		interface_fatal ("Can't get CWD: %s", strerror (errno));
 
-		for (i = 0; i < num; i++) {
-			char path[2*PATH_MAX];
-			int dir = !is_url(args[i]) && isdir(args[i]);
+	resolve_path (path, sizeof (path), file);
+	slash = strrchr (path, '/');
+	assert (slash != NULL);
+	*slash = 0;
 
-			if (is_url(args[i])) {
-				strncpy(path, args[i], sizeof(path));
-				path[sizeof(path) - 1] = 0;
-			}
-			else {
-				if (args[i][0] == '/')
-					strcpy (path, "/");
-				else
-					strcpy (path, this_cwd);
-				resolve_path (path, sizeof(path), args[i]);
-			}
+	iface_set_status ("Loading playlist...");
+	plist_load (playlist, file, path, 0);
+	iface_set_status ("");
+}
 
-			if (dir == 1)
-				read_directory_recurr (path, playlist);
-			else if (!dir && (is_sound_file(path)
-						|| is_url(path)))
-				plist_add (playlist, path);
-			else if (is_plist_file(path))
-				plist_load (playlist, path, NULL, 0);
+/* Process a list of arguments. */
+static void process_multiple_args (lists_t_strs *args)
+{
+	int size, ix;
+	const char *arg;
+	char this_cwd[PATH_MAX];
+
+	if (!getcwd (this_cwd, sizeof (cwd)))
+		interface_fatal ("Can't get CWD: %s", strerror (errno));
+
+	size = lists_strs_size (args);
+
+	for (ix = 0; ix < size; ix += 1) {
+		int dir;
+		char path[2 * PATH_MAX];
+
+		arg = lists_strs_at (args, ix);
+			dir = is_dir (arg);
+
+		if (is_url (arg)) {
+			strncpy (path, arg, sizeof (path));
+			path[sizeof(path) - 1] = 0;
+		}
+		else {
+			if (arg[0] == '/')
+				strcpy (path, "/");
+			else
+				strcpy (path, this_cwd);
+			resolve_path (path, sizeof (path), arg);
+		}
+
+		if (dir == 1)
+			read_directory_recurr (path, playlist);
+		else if (!dir && (is_sound_file (path) || is_url (path)))
+			plist_add (playlist, path);
+		else if (is_plist_file (path)) {
+			char *plist_dir, *slash;
+
+			/* Here we've chosen to resolve the playlist's relative paths
+			 * with respect to the directory of the playlist (or of the
+			 * symlink being used to reference it).  If some other base is
+			 * desired, then we probably need to introduce a new option. */
+
+			plist_dir = xstrdup (path);
+			slash = strrchr (plist_dir, '/');
+			assert (slash != NULL);
+			*slash = 0;
+
+			plist_load (playlist, path, plist_dir, 0);
+
+			free (plist_dir);
 		}
 	}
+}
 
-	if (plist_count(playlist) && !options_get_int("SyncPlaylist")) {
+/* Process file names passed as arguments. */
+static void process_args (lists_t_strs *args)
+{
+	int size;
+	const char *arg;
+
+	size = lists_strs_size (args);
+	arg = lists_strs_at (args, 0);
+
+	if (size == 1 && is_dir (arg) == 1) {
+		process_dir_arg (arg);
+		return;
+	}
+
+	if (size == 1 && is_plist_file (arg))
+		process_plist_arg (arg);
+	else
+		process_multiple_args (args);
+
+	if (plist_count (playlist) && !options_get_int ("SyncPlaylist")) {
 		switch_titles_file (playlist);
-		ask_for_tags (playlist, get_tags_setting());
+		ask_for_tags (playlist, get_tags_setting ());
 		iface_set_dir_content (IFACE_MENU_PLIST, playlist, NULL, NULL);
 		iface_update_queue_positions (queue, playlist, NULL, NULL);
 		iface_switch_to_plist ();
@@ -1555,122 +1574,18 @@ static void process_args (char **args, const int num)
 /* Load the playlist from .moc directory. */
 static void load_playlist ()
 {
-	char *plist_file = create_file_name ("playlist.m3u");
+	char *plist_file = create_file_name (PLAYLIST_FILE);
 
 	if (file_type(plist_file) == F_PLAYLIST) {
 		go_to_playlist (plist_file, 1);
 
-		/* We don't want to swith to the playlist after loading. */
+		/* We don't want to switch to the playlist after loading. */
 		waiting_for_plist_load = 0;
 	}
 }
 
-void init_interface (const int sock, const int logging, char **args,
-		const int arg_num)
-{
-	srv_sock = sock;
-
-	if (logging) {
-		FILE *logfp;
-
-		if (!(logfp = fopen(INTERFACE_LOG, "a")))
-			fatal ("Can't open log file for the interface");
-		log_init_stream (logfp);
-	}
-
-	logit ("Starting MOC interface...");
-
-	/* set locale acording to the environment variables */
-	if (!setlocale(LC_CTYPE, ""))
-		logit ("Could not set locale!");
-
-	file_info_reset (&curr_file);
-	file_info_block_init (&curr_file);
-	init_playlists ();
-	event_queue_init (&events);
-	keys_init ();
-	windows_init ();
-	get_server_options ();
-	update_mixer_name ();
-
-	signal (SIGQUIT, sig_quit);
-	signal (SIGTERM, sig_quit);
-	signal (SIGHUP, sig_quit);
-	signal (SIGINT, sig_interrupt);
-	
 #ifdef SIGWINCH
-	signal (SIGWINCH, sig_winch);
-#endif
-
-	if (arg_num) {
-		process_args (args, arg_num);
-	
-		if (plist_count(playlist) == 0) {
-			if (!options_get_int("SyncPlaylist")
-					|| !use_server_playlist())
-				load_playlist ();
-			send_int_to_srv (CMD_SEND_EVENTS);
-		}
-		else if (options_get_int("SyncPlaylist")) {
-			struct plist tmp_plist;
-			
-			/* We have made the playlist from command line. */
-			
-			/* the playlist should be now clear, but this will give
-			 * us the serial number of the playlist used by other
-			 * clients. */
-			plist_init (&tmp_plist);
-			get_server_playlist (&tmp_plist);
-
-			send_int_to_srv (CMD_SEND_EVENTS);
-
-			send_int_to_srv (CMD_LOCK);
-			send_int_to_srv (CMD_CLI_PLIST_CLEAR);
-
-			plist_set_serial (playlist,
-					plist_get_serial(&tmp_plist));
-			plist_free (&tmp_plist);
-
-			change_srv_plist_serial ();
-		
-			iface_set_status ("Notifying clients...");
-			send_items_to_clients (playlist);
-			iface_set_status ("");
-			plist_clear (playlist);
-			waiting_for_plist_load = 1;
-			send_int_to_srv (CMD_UNLOCK);
-
-			/* Now enter_first_dir() should not go to the music
-			 * directory. */
-			option_set_int ("StartInMusicDir", 0);
-
-		}
-
-	}
-	else {
-		send_int_to_srv (CMD_SEND_EVENTS);
-		if (!options_get_int("SyncPlaylist")
-				|| !use_server_playlist())
-			load_playlist ();
-		enter_first_dir ();
-	}
-
-	/* Ask the server for queue. */
-	use_server_queue ();
-
-	if (options_get_int("SyncPlaylist"))
-		send_int_to_srv (CMD_CAN_SEND_PLIST);
-
-	update_state ();
-	
-	if (options_get_int("CanStartInPlaylist")
-			&& curr_file.file
-			&& plist_find_fname(playlist, curr_file.file) != -1)
-		iface_switch_to_plist ();
-}
-
-#ifdef SIGWINCH
-/* Handle resizeing xterm */
+/* Handle resizing xterm. */
 static void do_resize ()
 {
 	iface_resize ();
@@ -1707,8 +1622,8 @@ static void go_dir_up ()
 	free (dir);
 }
 
-/* Get (generate) a playlist serial from the server and make sure it's not
- * the same as our playlists' serial. */
+/* Return a generated playlist serial from the server and make sure
+ * it's not the same as our playlist's serial. */
 static int get_safe_serial ()
 {
 	int serial;
@@ -1718,8 +1633,7 @@ static int get_safe_serial ()
 		serial = get_data_int ();
 	} while (playlist &&
 			serial == plist_get_serial(playlist)); /* check only the
-							   playlist, because
-							   dir_plist has serial
+							   playlist, because dir_plist has serial
 							   -1 */
 
 	return serial;
@@ -1730,10 +1644,10 @@ static int get_safe_serial ()
 static void send_playlist (struct plist *plist, const int clear)
 {
 	int i;
-	
+
 	if (clear)
 		send_int_to_srv (CMD_LIST_CLEAR);
-	
+
 	for (i = 0; i < plist->num; i++) {
 		if (!plist_deleted(plist, i)) {
 			send_int_to_srv (CMD_LIST_ADD);
@@ -1747,14 +1661,14 @@ static void send_playlist (struct plist *plist, const int clear)
 static void play_it (const char *file)
 {
 	struct plist *curr_plist;
-	
+
 	assert (file != NULL);
 
 	if (iface_in_dir_menu())
 		curr_plist = dir_plist;
 	else
 		curr_plist = playlist;
-	
+
 	send_int_to_srv (CMD_LOCK);
 
 	if (plist_get_serial(curr_plist) == -1 || get_server_plist_serial()
@@ -1767,7 +1681,7 @@ static void play_it (const char *file)
 		plist_set_serial (curr_plist, serial);
 		send_int_to_srv (CMD_PLIST_SET_SERIAL);
 		send_int_to_srv (serial);
-	
+
 		send_playlist (curr_plist, 1);
 	}
 	else
@@ -1792,7 +1706,7 @@ static void go_file ()
 	else if (type == F_DIR && iface_in_dir_menu()) {
 		if (!strcmp(file, ".."))
 			go_dir_up ();
-		else 
+		else
 			go_to_dir (file, 0);
 	}
 	else if (type == F_PLAYLIST)
@@ -1857,7 +1771,6 @@ static void add_dir_plist ()
 		return;
 	}
 
-
 	if (!strcmp(file, "..")) {
 		error ("Can't add '..'.");
 		free (file);
@@ -1873,13 +1786,13 @@ static void add_dir_plist ()
 	}
 	else
 		plist_load (&plist, file, cwd, 0);
-	
+
 	send_int_to_srv (CMD_LOCK);
 
 	plist_remove_common_items (&plist, playlist);
 
 	/* Add the new files to the server's playlist if the server has our
-	 * playlist */
+	 * playlist. */
 	if (get_server_plist_serial() == plist_get_serial(playlist))
 		send_playlist (&plist, 0);
 
@@ -1890,7 +1803,7 @@ static void add_dir_plist ()
 	}
 	else {
 		int i;
-		
+
 		switch_titles_file (&plist);
 		ask_for_tags (&plist, get_tags_setting());
 
@@ -1906,7 +1819,7 @@ static void add_dir_plist ()
 	free (file);
 }
 
-/* To avoid lots of locks and unlocks, this assumes a lock is sent before 
+/* To avoid lots of locks and unlocks, this assumes a lock is sent before
  * the first call and an unlock after the last.
  *
  * It's also assumed to be in the menu.
@@ -1933,22 +1846,22 @@ static void remove_file_from_playlist (const char *file)
 	}
 
 	/* Delete this item from the server's playlist if it has our
-	 * playlist */
+	 * playlist. */
 	if (get_server_plist_serial() == plist_get_serial(playlist)) {
 		send_int_to_srv (CMD_DELETE);
 		send_str_to_srv (file);
 	}
 }
 
-/* Remove all dead entries (point to non-existent or unreadable) */
+/* Remove all dead entries (point to non-existent or unreadable). */
 static void remove_dead_entries_plist ()
 {
 	const char *file = NULL;
 	int i;
 
-	if (! iface_in_plist_menu()) { 
+	if (! iface_in_plist_menu()) {
 		error ("Can't prune when not in the playlist.");
-		return; 
+		return;
 	}
 
 	send_int_to_srv (CMD_LOCK);
@@ -1975,18 +1888,17 @@ static void add_file_plist ()
 		add_dir_plist();
 		return;
 	}
-	
+
 	file = iface_get_curr_file ();
 
 	if (!file)
 		return;
-	
+
 	if (iface_curritem_get_type() != F_SOUND) {
 		error ("You can only add a file using this command.");
 		free (file);
 		return;
 	}
-
 
 	if (plist_find_fname(playlist, file) == -1) {
 		struct plist_item *item = &dir_plist->items[
@@ -2000,13 +1912,13 @@ static void add_file_plist ()
 		}
 		else {
 			int added;
-			
+
 			added = plist_add_from_item (playlist, item);
 			iface_add_to_plist (playlist, added);
 		}
-				
+
 		/* Add to the server's playlist if the server has our
-		 * playlist */
+		 * playlist. */
 		if (get_server_plist_serial() == plist_get_serial(playlist)) {
 			send_int_to_srv (CMD_LIST_ADD);
 			send_str_to_srv (file);
@@ -2037,18 +1949,18 @@ static void queue_toggle_file ()
 		return;
 	}
 
-	/* check if the file is already in the queue; if it isn't, add it,
-	 * otherwise, remove it */
+	/* Check if the file is already in the queue; if it isn't, add it,
+	 * otherwise, remove it. */
 
 	if (plist_find_fname(queue, file) == -1) {
-		/* Add item to the server's queue */
+		/* Add item to the server's queue. */
 		send_int_to_srv (CMD_QUEUE_ADD);
 		send_str_to_srv (file);
 
 		logit ("Added to queue: %s", file);
 	}
 	else {
-		/* Delete this item from the server's queue */
+		/* Delete this item from the server's queue. */
 		send_int_to_srv (CMD_QUEUE_DEL);
 		send_str_to_srv (file);
 
@@ -2070,30 +1982,30 @@ static void toggle_option (const char *name)
 
 static void toggle_show_time ()
 {
-	if (!strcasecmp(options_get_str("ShowTime"), "yes")) {
-		option_set_str("ShowTime", "IfAvailable");
+	if (!strcasecmp (options_get_str ("ShowTime"), "yes")) {
+		options_set_str ("ShowTime", "IfAvailable");
 		iface_set_status ("ShowTime: IfAvailable");
 	}
-	else if (!strcasecmp(options_get_str("ShowTime"), "no")) {
-		option_set_str("ShowTime", "yes");
+	else if (!strcasecmp (options_get_str ("ShowTime"), "no")) {
+		options_set_str ("ShowTime", "yes");
 		iface_update_show_time ();
 		ask_for_tags (dir_plist, TAGS_TIME);
 		ask_for_tags (playlist, TAGS_TIME);
 		iface_set_status ("ShowTime: yes");
-		
+
 	}
 	else { /* IfAvailable */
-		option_set_str("ShowTime", "no");
+		options_set_str ("ShowTime", "no");
 		iface_update_show_time ();
 		iface_set_status ("ShowTime: no");
-	}	
+	}
 }
 
 static void toggle_show_format ()
 {
 	int show_format = !options_get_int("ShowFormat");
-	
-	option_set_int ("ShowFormat", show_format);
+
+	options_set_int ("ShowFormat", show_format);
 	if (show_format)
 		iface_set_status ("ShowFormat: yes");
 	else
@@ -2128,22 +2040,28 @@ static void cmd_clear_queue ()
 
 static void go_to_music_dir ()
 {
-	if (options_get_str("MusicDir")) {
-		char music_dir[PATH_MAX] = "/";
+	const char *musicdir_optn;
+	char music_dir[PATH_MAX] = "/";
 
-		resolve_path (music_dir, sizeof(music_dir),
-				options_get_str("MusicDir"));
-		
-		if (file_type(music_dir) == F_DIR)
-			go_to_dir (music_dir, 0);
-		else if (file_type(music_dir) == F_PLAYLIST)
-			go_to_playlist (music_dir, 0);
-		else
-			error ("MusicDir is neither a directory nor a "
-					"playlist.");
-	}
-	else
+	musicdir_optn = options_get_str ("MusicDir");
+
+	if (!musicdir_optn) {
 		error ("MusicDir not defined");
+		return;
+	}
+
+	resolve_path (music_dir, sizeof(music_dir), musicdir_optn);
+
+	switch (file_type (music_dir)) {
+	case F_DIR:
+		go_to_dir (music_dir, 0);
+		break;
+	case F_PLAYLIST:
+		go_to_playlist (music_dir, 0);
+		break;
+	default:
+		error ("MusicDir is neither a directory nor a playlist!");
+	}
 }
 
 /* Make a directory from the string resolving ~, './' and '..'.
@@ -2162,10 +2080,10 @@ static char *make_dir (const char *str)
 	 * slash. */
 	if (strlen(str) > 1 && str[strlen(str)-1] == '/')
 		add_slash = 1;
-	
+
 	if (str[0] == '~') {
-		strncpy (dir, getenv("HOME"), PATH_MAX);
-		
+		strncpy (dir, get_home (), PATH_MAX);
+
 		if (dir[PATH_MAX]) {
 			logit ("Path too long!");
 			return NULL;
@@ -2173,7 +2091,7 @@ static char *make_dir (const char *str)
 
 		if (!strcmp(str, "~"))
 			add_slash = 1;
-		
+
 		str++;
 	}
 	else if (str[0] != '/')
@@ -2197,15 +2115,15 @@ static void entry_key_go_dir (const struct iface_key *k)
 		char buf[PATH_MAX+1];
 		char *entry_text;
 
-		entry_text = iface_entry_get_text ();		
+		entry_text = iface_entry_get_text ();
 		if (!(dir = make_dir(entry_text))) {
 			free (entry_text);
 			return;
 		}
 		free (entry_text);
-		
+
 		complete_dir = find_match_dir (dir);
-		
+
 		strncpy (buf, complete_dir ? complete_dir : dir, sizeof(buf));
 		if (complete_dir)
 			free (complete_dir);
@@ -2215,12 +2133,12 @@ static void entry_key_go_dir (const struct iface_key *k)
 	}
 	else if (k->type == IFACE_KEY_CHAR && k->key.ucs == '\n') {
 		char *entry_text = iface_entry_get_text ();
-		
+
 		if (entry_text[0]) {
 			char *dir = make_dir (entry_text);
 
 			iface_entry_history_add ();
-			
+
 			if (dir) {
 				/* strip trailing slash */
 				if (dir[strlen(dir)-1] == '/'
@@ -2230,7 +2148,7 @@ static void entry_key_go_dir (const struct iface_key *k)
 				free (dir);
 			}
 		}
-		
+
 		iface_entry_disable ();
 		free (entry_text);
 	}
@@ -2247,7 +2165,7 @@ static void play_from_url (const char *url)
 	send_int_to_srv (CMD_LIST_CLEAR);
 	send_int_to_srv (CMD_LIST_ADD);
 	send_str_to_srv (url);
-	
+
 	send_int_to_srv (CMD_PLAY);
 	send_str_to_srv ("");
 
@@ -2265,11 +2183,11 @@ static char *strip_white_spaces (const char *str)
 
 	n = strlen (str);
 
-	/* Strip trailing */
+	/* Strip trailing. */
 	while (isblank(str[n-1]))
 		n--;
 
-	/* Strip leading */
+	/* Strip leading whitespace. */
 	while (*str && isblank(*str)) {
 		str++;
 		n--;
@@ -2290,10 +2208,10 @@ static void entry_key_go_url (const struct iface_key *k)
 {
 	if (k->type == IFACE_KEY_CHAR && k->key.ucs == '\n') {
 		char *entry_text = iface_entry_get_text ();
-		
+
 		if (entry_text[0]) {
 			char *clean_url = strip_white_spaces (entry_text);
-			
+
 			iface_entry_history_add ();
 
 			if (is_url(clean_url))
@@ -2314,7 +2232,7 @@ static void entry_key_go_url (const struct iface_key *k)
 static void add_url_to_plist (const char *url)
 {
 	assert (url != NULL);
-	
+
 	if (plist_find_fname(playlist, url) == -1) {
 		send_int_to_srv (CMD_LOCK);
 
@@ -2323,8 +2241,7 @@ static void add_url_to_plist (const char *url)
 
 			item->file = xstrdup (url);
 			item->title_file = xstrdup (url);
-			item->title = item->title_file;
-			
+
 			send_int_to_srv (CMD_CLI_PLIST_ADD);
 			send_item_to_srv (item);
 
@@ -2333,14 +2250,14 @@ static void add_url_to_plist (const char *url)
 		}
 		else {
 			int added;
-			
+
 			added = plist_add (playlist, url);
 			make_file_title (playlist, added, 0);
 			iface_add_to_plist (playlist, added);
 		}
-				
+
 		/* Add to the server's playlist if the server has our
-		 * playlist */
+		 * playlist. */
 		if (get_server_plist_serial() == plist_get_serial(playlist)) {
 			send_int_to_srv (CMD_LIST_ADD);
 			send_str_to_srv (url);
@@ -2355,10 +2272,10 @@ static void entry_key_add_url (const struct iface_key *k)
 {
 	if (k->type == IFACE_KEY_CHAR && k->key.ucs == '\n') {
 		char *entry_text = iface_entry_get_text ();
-		
+
 		if (entry_text[0]) {
 			char *clean_url = strip_white_spaces (entry_text);
-			
+
 			iface_entry_history_add ();
 
 			if (is_url(clean_url))
@@ -2381,16 +2298,16 @@ static void entry_key_search (const struct iface_key *k)
 	if (k->type == IFACE_KEY_CHAR && k->key.ucs == '\n') {
 		char *file = iface_get_curr_file ();
 		char *text = iface_entry_get_text ();
-		
+
 		iface_entry_disable ();
-		
+
 		if (text[0]) {
 
 			if (!strcmp(file, "..")) {
 				free (file);
 				file = dir_up (cwd);
 			}
-			
+
 			if (is_url(file))
 				play_from_url (file);
 			else if (file_type(file) == F_DIR)
@@ -2428,7 +2345,7 @@ static void entry_key_plist_save (const struct iface_key *k)
 		char *text = iface_entry_get_text ();
 
 		iface_entry_disable ();
-		
+
 		if (text[0]) {
 			char *ext = ext_pos (text);
 			char *file;
@@ -2459,7 +2376,7 @@ static void entry_key_plist_save (const struct iface_key *k)
 
 			free (file);
 		}
-			
+
 		free (text);
 	}
 	else
@@ -2474,11 +2391,11 @@ static void entry_key_plist_overwrite (const struct iface_key *k)
 		assert (file != NULL);
 
 		iface_entry_disable ();
-		
+
 		save_playlist (file, NULL, 0); /* FIXME: not always NULL! */
 		if (iface_in_dir_menu())
 			reread_dir ();
-		
+
 		free (file);
 	}
 	else if (k->type == IFACE_KEY_CHAR && toupper(k->key.ucs) == 'N') {
@@ -2534,9 +2451,9 @@ static void update_iface_menu (const enum iface_menu menu,
 		const struct plist *plist)
 {
 	int i;
-	
+
 	assert (plist != NULL);
-	
+
 	for (i = 0; i < plist->num; i++)
 		if (!plist_deleted(plist, i))
 			iface_update_item (menu, plist, i);
@@ -2545,14 +2462,14 @@ static void update_iface_menu (const enum iface_menu menu,
 /* Switch ReadTags options and update the menu. */
 static void switch_read_tags ()
 {
-	if (options_get_int("ReadTags")) {
-		option_set_int("ReadTags", 0);
+	if (options_get_int ("ReadTags")) {
+		options_set_int ("ReadTags", 0);
 		switch_titles_file (dir_plist);
 		switch_titles_file (playlist);
 		iface_set_status ("ReadTags: no");
 	}
 	else {
-		option_set_int("ReadTags", 1);
+		options_set_int ("ReadTags", 1);
 		ask_for_tags (dir_plist, TAGS_COMMENTS);
 		ask_for_tags (playlist, TAGS_COMMENTS);
 		switch_titles_tags (dir_plist);
@@ -2569,6 +2486,7 @@ static void seek (const int sec)
 	send_int_to_srv (CMD_SEEK);
 	send_int_to_srv (sec);
 }
+
 static void jump_to (const int sec)
 {
 	send_int_to_srv (CMD_JUMP_TO);
@@ -2586,9 +2504,9 @@ static void delete_item ()
 	}
 
 	assert (plist_count(playlist) > 0);
-	
+
 	file = iface_get_curr_file ();
-	
+
 	send_int_to_srv (CMD_LOCK);
 	remove_file_from_playlist (file);
 	send_int_to_srv (CMD_UNLOCK);
@@ -2620,7 +2538,7 @@ static void go_to_playing_file ()
 			iface_switch_to_dir ();
 			free (file);
 		}
-			
+
 		iface_select_file (curr_file.file);
 	}
 }
@@ -2634,7 +2552,7 @@ static time_t rounded_time ()
 
 	if (gettimeofday(&exact_time, NULL) == -1)
 		interface_fatal ("gettimeofday() failed: %s", strerror(errno));
-	
+
 	curr_time = exact_time.tv_sec;
 	if (exact_time.tv_usec > 500000)
 		curr_time++;
@@ -2669,7 +2587,7 @@ static void move_item (const int direction)
 	char *file;
 	int second;
 	char *second_file;
-	
+
 	if (!iface_in_plist_menu()) {
 		error ("You can move only playlist items.");
 		return;
@@ -2692,11 +2610,11 @@ static void move_item (const int direction)
 		free (file);
 		return;
 	}
-		
+
 	second_file = plist_get_file (playlist, second);
-	
+
 	send_int_to_srv (CMD_LOCK);
-	
+
 	if (options_get_int("SyncPlaylist")) {
 		send_int_to_srv (CMD_CLI_PLIST_MOVE);
 		send_str_to_srv (file);
@@ -2713,7 +2631,7 @@ static void move_item (const int direction)
 	}
 
 	send_int_to_srv (CMD_UNLOCK);
-	
+
 	free (second_file);
 	free (file);
 }
@@ -2722,9 +2640,9 @@ static void move_item (const int direction)
 static void do_silent_seek ()
 {
 	time_t curr_time = time(NULL);
-	
+
 	if (silent_seek_pos != -1 && silent_seek_key_last < curr_time) {
-		seek (silent_seek_pos - curr_file.curr_time);
+		seek (silent_seek_pos - curr_file.curr_time - 1);
 		silent_seek_pos = -1;
 		iface_set_curr_time (curr_file.curr_time);
 	}
@@ -2740,18 +2658,18 @@ static void cmd_next ()
 				|| get_server_plist_serial()
 				!= plist_get_serial(playlist)) {
 			int serial;
-			
+
 			send_int_to_srv (CMD_LOCK);
-			
+
 			send_playlist (playlist, 1);
 			serial = get_safe_serial();
 			plist_set_serial (playlist, serial);
 			send_int_to_srv (CMD_PLIST_SET_SERIAL);
 			send_int_to_srv (plist_get_serial(playlist));
-			
+
 			send_int_to_srv (CMD_UNLOCK);
 		}
-	
+
 		send_int_to_srv (CMD_PLAY);
 		send_str_to_srv ("");
 	}
@@ -2773,11 +2691,11 @@ static int add_themes_to_menu (const char *themes_dir)
 
 	while ((entry = readdir(dir))) {
 		char file[PATH_MAX];
-		
+
 		if (entry->d_name[0] == '.')
 			continue;
 
-		/* Filter out backup files (file~) */
+		/* Filter out backup files (*~). */
 		if (entry->d_name[strlen(entry->d_name)-1] == '~')
 			continue;
 
@@ -2832,7 +2750,7 @@ static void theme_menu_key (const struct iface_key *k)
 {
 	if (!iface_key_is_resize(k)) {
 		enum key_cmd cmd = get_key_cmd (CON_MENU, k);
-		
+
 		switch (cmd) {
 			case KEY_CMD_GO:
 				use_theme ();
@@ -2872,13 +2790,13 @@ static void make_sure_tags_exist (const char *file)
 			|| plist->items[item_num].tags->filled
 				!= (TAGS_COMMENTS | TAGS_TIME)) {
 		int got_it = 0;
-		
+
 		send_tags_request (file, TAGS_COMMENTS | TAGS_TIME);
 
 		while (!got_it) {
 			int type = get_int_from_srv ();
 			void *data = get_event_data (type);
-			
+
 			if (type == EV_FILE_TAGS) {
 				struct tag_ev_response *ev
 					= (struct tag_ev_response *)data;
@@ -2910,7 +2828,7 @@ static struct file_tags *get_tags (const char *file)
 
 	if (file_type(file) == F_SOUND)
 		return tags_dup (plist->items[item_num].tags);
-	
+
 	return tags_new ();
 }
 
@@ -2928,186 +2846,140 @@ static char *get_title (const char *file)
 		plist = playlist;
 	else
 		return NULL;
-	
+
 	return xstrdup (plist->items[item_num].title_tags
 			? plist->items[item_num].title_tags
 			: plist->items[item_num].title_file);
 }
 
 /* Substitute arguments for custom command that begin with '%'.
- * The argument is free()ed is substituted, the new value is returned. */
-static char *custom_cmd_substitute (char *arg)
+ * The new value is returned. */
+static char *custom_cmd_substitute (const char *arg)
 {
-	if (!strcmp(arg, "%i")) {
-		char *file = iface_get_curr_file ();
+	char *result = NULL;
+	char *file = NULL;
+	struct file_tags *tags = NULL;
 
-		free (arg);
-		arg = get_title (file);
-		free (file);
-	}
-	else if (!strcmp(arg, "%t")) {
-		struct file_tags *tags;
-		char *file = iface_get_curr_file ();
-		
-		free (arg);
-
-		tags = get_tags (file);
-		arg = xstrdup (tags->title);
-		
-		free (file);
-		tags_free (tags);
-	}
-	else if (!strcmp(arg, "%a")) {
-		struct file_tags *tags;
-		char *file = iface_get_curr_file ();
-		
-		free (arg);
-
-		tags = get_tags (file);
-		arg = xstrdup (tags->album);
-		
-		free (file);
-		tags_free (tags);
-	}
-	else if (!strcmp(arg, "%r")) {
-		struct file_tags *tags;
-		char *file = iface_get_curr_file ();
-		
-		free (arg);
-
-		tags = get_tags (file);
-		arg = xstrdup (tags->artist);
-		
-		free (file);
-		tags_free (tags);
-	}
-	else if (!strcmp(arg, "%n")) {
-		struct file_tags *tags;
-		char *file = iface_get_curr_file ();
-		
-		free (arg);
-
-		tags = get_tags (file);
-		arg = (char *)xmalloc(sizeof(char) * 10);
-		snprintf (arg, 10, "%d", tags->track);
-		
-		free (file);
-		tags_free (tags);
-	}
-	else if (!strcmp(arg, "%m")) {
-		struct file_tags *tags;
-		char *file = iface_get_curr_file ();
-		
-		free (arg);
-
-		tags = get_tags (file);
-		arg = (char *)xmalloc(sizeof(char) * 10);
-		snprintf (arg, 10, "%d", tags->time);
-		
-		free (file);
-		tags_free (tags);
-	}
-	else if (!strcmp(arg, "%f")) {
-		free (arg);
-		arg = iface_get_curr_file ();
-	}
-	else if (!strcmp(arg, "%I")) {
-		free (arg);
-		arg = xstrdup (curr_file.title);
-	}
-	else if (!strcmp(arg, "%T")) {
-		free (arg);
-		if (curr_file.tags && curr_file.tags->title)
-			arg = xstrdup (curr_file.tags->title);
-		else
-			arg = NULL;
-	}
-	else if (!strcmp(arg, "%A")) {
-		free (arg);
-		if (curr_file.tags && curr_file.tags->album)
-			arg = xstrdup (curr_file.tags->album);
-		else
-			arg = NULL;
-	}
-	else if (!strcmp(arg, "%R")) {
-		free (arg);
-		if (curr_file.tags && curr_file.tags->artist)
-			arg = xstrdup (curr_file.tags->artist);
-		else
-			arg = NULL;
-	}
-	else if (!strcmp(arg, "%N")) {
-		free (arg);
-		if (curr_file.tags && curr_file.tags->track != -1) {
-			arg = (char *)xmalloc(sizeof(char) * 10);
-			snprintf (arg, 10, "%d", curr_file.tags->track);
+	if (strlen (arg) == 2 && arg[0] == '%') {
+		switch (arg[1]) {
+		case 'i':
+			file = iface_get_curr_file ();
+			result = get_title (file);
+			break;
+		case 't':
+			file = iface_get_curr_file ();
+			tags = get_tags (file);
+			result = xstrdup (tags->title);
+			break;
+		case 'a':
+			file = iface_get_curr_file ();
+			tags = get_tags (file);
+			result = xstrdup (tags->album);
+			break;
+		case 'r':
+			file = iface_get_curr_file ();
+			tags = get_tags (file);
+			result = xstrdup (tags->artist);
+			break;
+		case 'n':
+			file = iface_get_curr_file ();
+			tags = get_tags (file);
+			result = (char *) xmalloc (sizeof (char) * 10);
+			snprintf (result, 10, "%d", tags->track);
+			break;
+		case 'm':
+			file = iface_get_curr_file ();
+			tags = get_tags (file);
+			result = (char *) xmalloc (sizeof (char) * 10);
+			snprintf (result, 10, "%d", tags->time);
+			break;
+		case 'f':
+			result = iface_get_curr_file ();
+			break;
+		case 'I':
+			result = xstrdup (curr_file.title);
+			break;
+		case 'T':
+			if (curr_file.tags && curr_file.tags->title)
+				result = xstrdup (curr_file.tags->title);
+			break;
+		case 'A':
+			if (curr_file.tags && curr_file.tags->album)
+				result = xstrdup (curr_file.tags->album);
+			break;
+		case 'R':
+			if (curr_file.tags && curr_file.tags->artist)
+				result = xstrdup (curr_file.tags->artist);
+			break;
+		case 'N':
+			if (curr_file.tags && curr_file.tags->track != -1) {
+				result = (char *) xmalloc (sizeof (char) * 10);
+				snprintf (result, 10, "%d", curr_file.tags->track);
+			}
+			break;
+		case 'M':
+			if (curr_file.tags && curr_file.tags->time != -1) {
+				result = (char *) xmalloc (sizeof (char) * 10);
+				snprintf (result, 10, "%d", curr_file.tags->time);
+			}
+			break;
+		case 'F':
+			if (curr_file.file)
+				result = xstrdup (curr_file.file);
+			break;
+		case 'S':
+			if (curr_file.file && curr_file.block_file) {
+				result = (char *) xmalloc (sizeof (char) * 10);
+				snprintf (result, 10, "%d", curr_file.block_start);
+			}
+			break;
+		case 'E':
+			if (curr_file.file && curr_file.block_file) {
+				result = (char *) xmalloc (sizeof (char) * 10);
+				snprintf (result, 10, "%d", curr_file.block_end);
+			}
+			break;
+		default:
+			result = xstrdup (arg);
 		}
-		else
-			arg = NULL;
 	}
-	else if (!strcmp(arg, "%M")) {
-		free (arg);
-		if (curr_file.tags && curr_file.tags->time != -1) {
-			arg = (char *)xmalloc(sizeof(char) * 10);
-			snprintf (arg, 10, "%d", curr_file.tags->time);
-		}
-		else
-			arg = NULL;
-	}
-	else if (!strcmp(arg, "%F")) {
-		free (arg);
-		if (curr_file.file)
-			arg = xstrdup (curr_file.file);
-		else
-			arg = NULL;
-	}
-	else if (!strcmp(arg, "%S")) {
-		free (arg);
-		if (curr_file.file && curr_file.block_file) {
-			arg = (char *)xmalloc(sizeof(char) * 10);
-			snprintf (arg, 10, "%d", curr_file.block_start);
-		}
-		else
-			arg = NULL;
-	}
-	else if (!strcmp(arg, "%E")) {
-		free (arg);
-		if (curr_file.file && curr_file.block_file) {
-			arg = (char *)xmalloc(sizeof(char) * 10);
-			snprintf (arg, 10, "%d", curr_file.block_end);
-		}
-		else
-			arg = NULL;
-	}
+	else
+		result = xstrdup (arg);
 
 	/* Replace nonexisting data with an empty string. */
-	if (!arg)
-		arg = xstrdup ("");
+	if (!result)
+		result = xstrdup ("");
 
-	return arg;
+	free (file);
+	if (tags)
+		tags_free (tags);
+
+	return result;
 }
 
-static void run_external_cmd (char **args, const int arg_num)
+static void run_external_cmd (char **args, const int arg_num ATTR_UNUSED)
 {
 	pid_t child;
 
 	assert (args != NULL);
 	assert (arg_num >= 1);
-	
+	assert (args[0] != NULL);
+	assert (args[arg_num] == NULL);
+
 	iface_temporary_exit ();
-	
+
 	child = fork();
 	if (child == -1)
-		error ("fork() failed");
+		error ("fork() failed: %s", strerror (errno));
 	else {
 		int status;
-		
-		if (child == 0) { /* I'm a child */
-			
+
+		if (child == 0) { /* I'm a child. */
+
 			putchar ('\n');
 			execvp (args[0], args);
 
-			/* We have an error */
+			/* We have an error. */
 			fprintf (stderr, "\nError executing %s: %s\n", args[0],
 					strerror(errno));
 			sleep (2);
@@ -3128,61 +3000,43 @@ static void run_external_cmd (char **args, const int arg_num)
 /* Exec (execvp()) a custom command (ExecCommand[1-10] options). */
 static void exec_custom_command (const char *option)
 {
-	char *cmd;
-	char *args[20];
-	int arg_num = 1;
+	char *cmd, *arg;
+	char **args;
+	int ix, arg_num;
+	lists_t_strs *cmd_list, *arg_list;
 
 	assert (option != NULL);
-	
-	cmd = xstrdup (options_get_str(option));
-	if (!cmd || !cmd[0]) {
+
+	cmd = options_get_str (option);
+	if (!cmd || strlen (cmd) == 0) {
 		error ("%s is not set", option);
-		if (cmd)
-			free (cmd);
 		return;
 	}
 
-	/* Split into arguments */
-
-	if (!(args[0] = xstrdup(strtok(cmd, " \t")))) {
+	/* Split into arguments. */
+	cmd_list = lists_strs_new (4);
+	arg_num = lists_strs_tokenise (cmd_list, cmd);
+	if (arg_num == 0) {
 		error ("Malformed %s option", option);
-		free (cmd);
-		return;
-	}
-	
-	while (arg_num < (int)(sizeof(args)/sizeof(args[0])) - 1
-			&& (args[arg_num] = xstrdup(strtok(NULL, " \t")))) {
-		args[arg_num] = custom_cmd_substitute (args[arg_num]);
-		arg_num++;
-	}
-	if (arg_num == (int)sizeof(args)/sizeof(args[0]) - 1) {
-		error ("Too many arguments in %s", option);
-
-		do {
-			free (args[--arg_num]);
-		} while (arg_num);
-		
-		free (cmd);
+		lists_strs_free (cmd_list);
 		return;
 	}
 
-	args[arg_num] = NULL;
-
-	{
-		int i;
-		
-		logit ("Running command:");
-
-		for (i = 0; i < arg_num; i++)
-			logit ("'%s'", args[i]);
+	arg_list = lists_strs_new (lists_strs_size (cmd_list));
+	for (ix = 0; ix < arg_num; ix += 1) {
+		arg = custom_cmd_substitute (lists_strs_at (cmd_list, ix));
+		lists_strs_push (arg_list, arg);
 	}
+	lists_strs_free (cmd_list);
 
-	run_external_cmd (args, arg_num);
-
-	do {
-		free (args[--arg_num]);
-	} while (arg_num);
+	cmd = lists_strs_fmt (arg_list, " %s");
+	logit ("Running command:%s", cmd);
 	free (cmd);
+
+	args = lists_strs_save (arg_list);
+	lists_strs_free (arg_list);
+	run_external_cmd (args, arg_num);
+	free (args);
 
 	if (iface_in_dir_menu())
 		reread_dir ();
@@ -3195,10 +3049,10 @@ static void go_to_fast_dir (const int num)
 	assert (num >= 1 && num <= 10);
 
 	sprintf (option_name, "FastDir%d", num);
-	
+
 	if (options_get_str(option_name)) {
 		char dir[PATH_MAX] = "/";
-		
+
 		resolve_path (dir, sizeof(dir), options_get_str(option_name));
 		go_to_dir (dir, 0);
 	}
@@ -3208,9 +3062,9 @@ static void go_to_fast_dir (const int num)
 
 static void toggle_playlist_full_paths (void)
 {
-	int new_val = !options_get_int("PlaylistFullPaths");
-	
-	option_set_int ("PlaylistFullPaths", new_val);
+	int new_val = !options_get_int ("PlaylistFullPaths");
+
+	options_set_int ("PlaylistFullPaths", new_val);
 
 	if (new_val)
 		iface_set_status ("PlaylistFullPaths: on");
@@ -3220,20 +3074,20 @@ static void toggle_playlist_full_paths (void)
 	update_iface_menu (IFACE_MENU_PLIST, playlist);
 }
 
-/* Handle key */
+/* Handle key. */
 static void menu_key (const struct iface_key *k)
 {
-	if (iface_in_help())
+	if (iface_in_help ())
 		iface_handle_help_key (k);
-	else if (iface_in_lyrics())
+	else if (iface_in_lyrics ())
 		iface_handle_lyrics_key (k);
-	else if (iface_in_entry())
+	else if (iface_in_entry ())
 		entry_key (k);
-	else if (iface_in_theme_menu())
+	else if (iface_in_theme_menu ())
 		theme_menu_key (k);
-	else if (!iface_key_is_resize(k)) {
+	else if (!iface_key_is_resize (k)) {
 		enum key_cmd cmd = get_key_cmd (CON_MENU, k);
-		
+
 		switch (cmd) {
 			case KEY_CMD_QUIT_CLIENT:
 				want_quit = QUIT_CLIENT;
@@ -3308,10 +3162,10 @@ static void menu_key (const struct iface_key *k)
 				adjust_mixer (+1);
 				break;
 			case KEY_CMD_SEEK_BACKWARD:
-				seek (-options_get_int("SeekTime"));
+				seek (-options_get_int ("SeekTime"));
 				break;
 			case KEY_CMD_SEEK_FORWARD:
-				seek (options_get_int("SeekTime"));
+				seek (options_get_int ("SeekTime"));
 				break;
 			case KEY_CMD_HELP:
 				iface_switch_to_help ();
@@ -3326,14 +3180,13 @@ static void menu_key (const struct iface_key *k)
 				iface_refresh ();
 				break;
 			case KEY_CMD_RELOAD:
-				if (iface_in_dir_menu())
+				if (iface_in_dir_menu ())
 					reread_dir ();
 				break;
 			case KEY_CMD_TOGGLE_SHOW_HIDDEN_FILES:
-				option_set_int ("ShowHiddenFiles",
-						!options_get_int(
-							"ShowHiddenFiles"));
-				if (iface_in_dir_menu())
+				options_set_int ("ShowHiddenFiles",
+				                 !options_get_int ("ShowHiddenFiles"));
+				if (iface_in_dir_menu ())
 					reread_dir ();
 				break;
 			case KEY_CMD_GO_MUSIC_DIR:
@@ -3346,11 +3199,10 @@ static void menu_key (const struct iface_key *k)
 				iface_make_entry (ENTRY_SEARCH);
 				break;
 			case KEY_CMD_PLIST_SAVE:
-				if (plist_count(playlist))
+				if (plist_count (playlist))
 					iface_make_entry (ENTRY_PLIST_SAVE);
 				else
-					error ("The playlist is "
-							"empty.");
+					error ("The playlist is empty.");
 				break;
 			case KEY_CMD_TOGGLE_SHOW_TIME:
 				toggle_show_time ();
@@ -3374,11 +3226,10 @@ static void menu_key (const struct iface_key *k)
 				error ("Bad command");
 				break;
 			case KEY_CMD_SEEK_FORWARD_5:
-				seek_silent (options_get_int("SilentSeekTime"));
+				seek_silent (options_get_int ("SilentSeekTime"));
 				break;
 			case KEY_CMD_SEEK_BACKWARD_5:
-				seek_silent (-options_get_int(
-							"SilentSeekTime"));
+				seek_silent (-options_get_int ("SilentSeekTime"));
 				break;
 			case KEY_CMD_VOLUME_10:
 				set_mixer (10);
@@ -3474,6 +3325,9 @@ static void menu_key (const struct iface_key *k)
 			case KEY_CMD_TOGGLE_LAYOUT:
 				iface_toggle_layout ();
 				break;
+			case KEY_CMD_TOGGLE_PERCENT:
+				iface_toggle_percent ();
+				break;
 			case KEY_CMD_PLIST_MOVE_UP:
 				move_item (1);
 				break;
@@ -3545,7 +3399,7 @@ static void get_and_handle_event ()
 static void dequeue_events ()
 {
 	struct event *e;
-	
+
 	debug ("Dequeuing events...");
 
 	while ((e = event_get_first(&events))) {
@@ -3563,27 +3417,129 @@ static void handle_interrupt ()
 		iface_entry_disable ();
 }
 
+void init_interface (const int sock, const int logging, lists_t_strs *args)
+{
+	FILE *logfp;
+
+	logit ("Starting MOC Interface");
+
+	logfp = NULL;
+	if (logging) {
+		logfp = fopen (INTERFACE_LOG, "a");
+		if (!logfp)
+			fatal ("Can't open client log file: %s", strerror (errno));
+	}
+	log_init_stream (logfp, INTERFACE_LOG);
+
+	/* Set locale according to the environment variables. */
+	if (!setlocale(LC_CTYPE, ""))
+		logit ("Could not set locale!");
+
+	srv_sock = sock;
+
+	file_info_reset (&curr_file);
+	file_info_block_init (&curr_file);
+	init_playlists ();
+	event_queue_init (&events);
+	keys_init ();
+	windows_init ();
+	get_server_options ();
+	update_mixer_name ();
+
+	signal (SIGQUIT, sig_quit);
+	signal (SIGTERM, sig_quit);
+	signal (SIGHUP, sig_quit);
+	signal (SIGINT, sig_interrupt);
+
+#ifdef SIGWINCH
+	signal (SIGWINCH, sig_winch);
+#endif
+
+	if (!lists_strs_empty (args)) {
+		process_args (args);
+
+		if (plist_count(playlist) == 0) {
+			if (!options_get_int("SyncPlaylist")
+					|| !use_server_playlist())
+				load_playlist ();
+			send_int_to_srv (CMD_SEND_EVENTS);
+		}
+		else if (options_get_int("SyncPlaylist")) {
+			struct plist tmp_plist;
+
+			/* We have made the playlist from command line. */
+
+			/* The playlist should be now clear, but this will give
+			 * us the serial number of the playlist used by other
+			 * clients. */
+			plist_init (&tmp_plist);
+			get_server_playlist (&tmp_plist);
+
+			send_int_to_srv (CMD_SEND_EVENTS);
+
+			send_int_to_srv (CMD_LOCK);
+			send_int_to_srv (CMD_CLI_PLIST_CLEAR);
+
+			plist_set_serial (playlist,
+					plist_get_serial(&tmp_plist));
+			plist_free (&tmp_plist);
+
+			change_srv_plist_serial ();
+
+			iface_set_status ("Notifying clients...");
+			send_items_to_clients (playlist);
+			iface_set_status ("");
+			plist_clear (playlist);
+			waiting_for_plist_load = 1;
+			send_int_to_srv (CMD_UNLOCK);
+
+			/* Now enter_first_dir() should not go to the music
+			 * directory. */
+			options_set_int ("StartInMusicDir", 0);
+		}
+	}
+	else {
+		send_int_to_srv (CMD_SEND_EVENTS);
+		if (!options_get_int("SyncPlaylist")
+				|| !use_server_playlist())
+			load_playlist ();
+		enter_first_dir ();
+	}
+
+	/* Ask the server for queue. */
+	use_server_queue ();
+
+	if (options_get_int("SyncPlaylist"))
+		send_int_to_srv (CMD_CAN_SEND_PLIST);
+
+	update_state ();
+
+	if (options_get_int("CanStartInPlaylist")
+			&& curr_file.file
+			&& plist_find_fname(playlist, curr_file.file) != -1)
+		iface_switch_to_plist ();
+}
+
 void interface_loop ()
 {
 	while (want_quit == NO_QUIT) {
 		fd_set fds;
 		int ret;
 		struct timeval timeout = { 1, 0 };
-		
+
 		FD_ZERO (&fds);
 		FD_SET (srv_sock, &fds);
 		FD_SET (STDIN_FILENO, &fds);
 
 		dequeue_events ();
 		ret = select (srv_sock + 1, &fds, NULL, NULL, &timeout);
+		if (ret == -1 && !want_quit && errno != EINTR)
+			interface_fatal ("select() failed: %s", strerror(errno));
 
 		iface_tick ();
-		
+
 		if (ret == 0)
 			do_silent_seek ();
-		else if (ret == -1 && !want_quit && errno != EINTR)
-			interface_fatal ("select() failed: %s",
-					strerror(errno));
 
 #ifdef SIGWINCH
 		if (want_resize)
@@ -3593,7 +3549,7 @@ void interface_loop ()
 		if (ret > 0) {
 			if (FD_ISSET(STDIN_FILENO, &fds)) {
 				struct iface_key k;
-				
+
 				iface_get_key (&k);
 
 				clear_interrupt ();
@@ -3633,7 +3589,7 @@ static void save_curr_dir ()
  * playlist is empty. */
 static void save_playlist_in_moc ()
 {
-	char *plist_file = create_file_name("playlist.m3u");
+	char *plist_file = create_file_name (PLAYLIST_FILE);
 
 	if (plist_count(playlist) && options_get_int("SavePlaylist"))
 		save_playlist (plist_file, NULL, 1);
@@ -3651,7 +3607,7 @@ void interface_end ()
 		send_int_to_srv (CMD_DISCONNECT);
 	close (srv_sock);
 	srv_sock = -1;
-	
+
 	windows_end ();
 	keys_cleanup ();
 
@@ -3663,15 +3619,17 @@ void interface_end ()
 	free (queue);
 
 	event_queue_free (&events);
-	
+
 	logit ("Interface exited");
+
+	log_close ();
 }
 
 void interface_fatal (const char *format, ...)
 {
 	char err_msg[512];
 	va_list va;
-	
+
 	va_start (va, format);
 	vsnprintf (err_msg, sizeof(err_msg), format, va);
 	err_msg[sizeof(err_msg) - 1] = 0;
@@ -3695,7 +3653,7 @@ void interface_cmdline_clear_plist (int server_sock)
 				   here */
 
 	plist_init (&plist);
-	
+
 	if (options_get_int("SyncPlaylist"))
 		send_int_to_srv (CMD_CLI_PLIST_CLEAR);
 
@@ -3709,59 +3667,57 @@ void interface_cmdline_clear_plist (int server_sock)
 		send_int_to_srv (CMD_LIST_CLEAR);
 		send_int_to_srv (CMD_UNLOCK);
 	}
-	
-	unlink (create_file_name("playlist.m3u"));
+
+	unlink (create_file_name (PLAYLIST_FILE));
 
 	plist_free (&plist);
 }
 
-static void add_recursively (struct plist *plist, char **args,
-		const int arg_num)
+static void add_recursively (struct plist *plist, lists_t_strs *args)
 {
-	int i;
+	int ix;
 
-	for (i = 0; i < arg_num; i++) {
+	for (ix = 0; ix < lists_strs_size (args); ix += 1) {
 		int dir;
-		char path[PATH_MAX+1];
+		char path[PATH_MAX + 1];
+		const char *arg;
 
-		if (!is_url(args[i]) && args[i][0] != '/') {
-			if (args[0][0] == '/')
+		arg = lists_strs_at (args, ix);
+
+		if (!is_url (arg) && arg[0] != '/') {
+			if (arg[0] == '/')
 				strcpy (path, "/");
 			else {
-				strncpy (path, cwd, sizeof(path));
-				path[sizeof(path)-1] = 0;
+				strncpy (path, cwd, sizeof (path));
+				path[sizeof (path) - 1] = 0;
 			}
-			resolve_path (path, sizeof(path), args[i]);
+			resolve_path (path, sizeof (path), arg);
 		}
 		else {
-			strncpy (path, args[i], sizeof(path));
-			path[sizeof(path)-1] = 0;
+			strncpy (path, arg, sizeof (path));
+			path[sizeof (path) - 1] = 0;
 
-			if (!is_url(args[i]))
-				resolve_path (path, sizeof(path), "");
+			if (!is_url (arg))
+				resolve_path (path, sizeof (path), "");
 		}
-			
-		dir = !is_url(path) && isdir(path);
+
+		dir = is_dir (path);
 
 		if (dir == 1)
 			read_directory_recurr (path, plist);
-		else if (is_plist_file(args[i]))
-			plist_load (plist, args[i], cwd, 0);
-		else if ((is_url(path) || is_sound_file(path))
-				&& plist_find_fname(plist, path) == -1) {
+		else if (is_plist_file (arg))
+			plist_load (plist, arg, cwd, 0);
+		else if ((is_url (path) || is_sound_file (path))
+				&& plist_find_fname (plist, path) == -1) {
 			int added = plist_add (plist, path);
-			
-			if (is_url(path)) {
+
+			if (is_url (path))
 				make_file_title (plist, added, 0);
-				plist->items[added].title =
-					plist->items[added].title_file;
-			}
 		}
 	}
 }
 
-void interface_cmdline_append (int server_sock, char **args,
-		const int arg_num)
+void interface_cmdline_append (int server_sock, lists_t_strs *args)
 {
 	srv_sock = server_sock; /* the interface is not initialized, so set it
 				   here */
@@ -3772,14 +3728,14 @@ void interface_cmdline_append (int server_sock, char **args,
 
 		plist_init (&clients_plist);
 		plist_init (&new);
-		
+
 		if (!getcwd(cwd, sizeof(cwd)))
-			fatal ("Can't get CWD: %s.", strerror(errno));
-		
+			fatal ("Can't get CWD: %s", strerror(errno));
+
 		if (recv_server_plist(&clients_plist)) {
-			add_recursively (&new, args, arg_num);
+			add_recursively (&new, args);
 			plist_sort_fname (&new);
-			
+
 			send_int_to_srv (CMD_LOCK);
 
 			plist_remove_common_items (&new, &clients_plist);
@@ -3796,13 +3752,12 @@ void interface_cmdline_append (int server_sock, char **args,
 			plist_init (&saved_plist);
 
 			/* this checks if the file exists */
-			if (file_type(create_file_name("playlist.m3u"))
+			if (file_type (create_file_name (PLAYLIST_FILE))
 						== F_PLAYLIST)
 					plist_load (&saved_plist,
-						create_file_name(
-							"playlist.m3u"),
+						create_file_name (PLAYLIST_FILE),
 						cwd, 1);
-			add_recursively (&new, args, arg_num);
+			add_recursively (&new, args);
 			plist_sort_fname (&new);
 
 			send_int_to_srv (CMD_LOCK);
@@ -3819,8 +3774,7 @@ void interface_cmdline_append (int server_sock, char **args,
 				fill_tags (&saved_plist, TAGS_COMMENTS
 						| TAGS_TIME, 1);
 				plist_save (&saved_plist,
-						create_file_name(
-							"playlist.m3u"),
+						create_file_name (PLAYLIST_FILE),
 						NULL, 1);
 			}
 
@@ -3840,25 +3794,25 @@ void interface_cmdline_play_first (int server_sock)
 				   here */
 
 	if (!getcwd(cwd, sizeof(cwd)))
-		fatal ("Can't get CWD: %s.", strerror(errno));
+		fatal ("Can't get CWD: %s", strerror(errno));
 	plist_init (&plist);
-	
+
 	send_int_to_srv (CMD_GET_SERIAL);
 	plist_set_serial (&plist, get_data_int());
 
 	/* the second condition will checks if the file exists */
 	if (!recv_server_plist(&plist)
-			&& file_type(create_file_name("playlist.m3u"))
+			&& file_type (create_file_name (PLAYLIST_FILE))
 			== F_PLAYLIST)
-		plist_load (&plist, create_file_name("playlist.m3u"), cwd, 1);
-	
+		plist_load (&plist, create_file_name (PLAYLIST_FILE), cwd, 1);
+
 	send_int_to_srv (CMD_LOCK);
 	if (get_server_plist_serial() != plist_get_serial(&plist)) {
 		send_playlist (&plist, 1);
 		send_int_to_srv (CMD_PLIST_SET_SERIAL);
 		send_int_to_srv (plist_get_serial(&plist));
 	}
-	
+
 	send_int_to_srv (CMD_PLAY);
 	send_str_to_srv ("");
 
@@ -3873,13 +3827,13 @@ static struct file_tags *get_tags_no_iface (const char *file,
 	struct file_tags *tags = NULL;
 
 	assert (file_type(file) == F_SOUND);
-	
+
 	send_tags_request (file, tags_sel);
 
 	while (!tags) {
 		int type = get_int_from_srv ();
 		void *data = get_event_data (type);
-		
+
 		if (type == EV_FILE_TAGS) {
 			struct tag_ev_response *ev
 				= (struct tag_ev_response *)data;
@@ -3892,7 +3846,7 @@ static struct file_tags *get_tags_no_iface (const char *file,
 		else {
 			/* We can't handle other events, since this function
 			 * is to be invoked without the interface. */
-			logit ("Server send an event that I didn't extect!");
+			logit ("Server sent an event which I didn't expect!");
 			abort ();
 		}
 	}
@@ -3907,9 +3861,9 @@ void interface_cmdline_file_info (const int server_sock)
 	init_playlists ();
 	file_info_reset (&curr_file);
 	file_info_block_init (&curr_file);
-	
+
 	curr_file.state = get_state ();
-	
+
 	if (curr_file.state == STATE_STOP)
 		puts ("State: STOP");
 	else {
@@ -3918,7 +3872,7 @@ void interface_cmdline_file_info (const int server_sock)
 		char time_left_str[6];
 		char time_str[6];
 		char *title;
-		
+
 		if (curr_file.state == STATE_PLAY)
 			puts ("State: PLAY");
 		else if (curr_file.state == STATE_PAUSE)
@@ -3937,7 +3891,7 @@ void interface_cmdline_file_info (const int server_sock)
 				curr_file.tags = get_tags_no_iface (
 						curr_file.file,
 						TAGS_COMMENTS | TAGS_TIME);
-			
+
 			/* get the title */
 			if (curr_file.tags->title)
 				title = build_title (curr_file.tags);
@@ -3960,12 +3914,12 @@ void interface_cmdline_file_info (const int server_sock)
 
 		if (curr_file.curr_time != -1) {
 			sec_to_min (curr_time_str, curr_file.curr_time);
-		
+
 			if (curr_file.tags->time != -1) {
 				sec_to_min (curr_time_str, curr_file.curr_time);
 				left = curr_file.tags->time -
 					curr_file.curr_time;
-				sec_to_min (time_left_str, left > 0 ? left : 0);
+				sec_to_min (time_left_str, MAX(left, 0));
 			}
 		}
 		else {
@@ -3997,13 +3951,10 @@ void interface_cmdline_file_info (const int server_sock)
 		printf ("CurrentTime: %s\n", curr_time_str);
 		printf ("CurrentSec: %d\n", curr_file.curr_time);
 
-		printf ("Bitrate: %dkbps\n",
-				curr_file.bitrate > 0 ? curr_file.bitrate : 0);
-		printf ("AvgBitrate: %dkbps\n", 
-				curr_file.avg_bitrate > 0
-				? curr_file.avg_bitrate : 0);
+		printf ("Bitrate: %dkbps\n", MAX(curr_file.bitrate, 0));
+		printf ("AvgBitrate: %dkbps\n", MAX(curr_file.avg_bitrate, 0));
 		printf ("Rate: %dkHz\n", curr_file.rate);
-		
+
 		file_info_cleanup (&curr_file);
 		free (title);
 	}
@@ -4013,65 +3964,72 @@ void interface_cmdline_file_info (const int server_sock)
 	plist_free (queue);
 }
 
-void interface_cmdline_enqueue (int server_sock, char **args,
-		const int arg_num)
+void interface_cmdline_enqueue (int server_sock, lists_t_strs *args)
 {
-	int i;
+	int ix;
 
-	srv_sock = server_sock; /* the interface is not initialized, so set it
-				   here */
+	/* the interface is not initialized, so set it here */
+	srv_sock = server_sock;
 
-	if (!getcwd(cwd, sizeof(cwd)))
-		fatal ("Can't get CWD: %s.", strerror(errno));
+	if (!getcwd (cwd, sizeof (cwd)))
+		fatal ("Can't get CWD: %s", strerror(errno));
 
-	for (i = 0; i < arg_num; i++)
-		if (is_sound_file(args[i]) || is_url(args[i])) {
-			char *path = absolute_path (args[i], cwd);
+	for (ix = 0; ix < lists_strs_size (args); ix += 1) {
+		const char *arg;
+
+		arg = lists_strs_at (args, ix);
+		if (is_sound_file (arg) || is_url (arg)) {
+			char *path = absolute_path (arg, cwd);
 			send_int_to_srv (CMD_QUEUE_ADD);
 			send_str_to_srv (path);
 			free (path);
 		}
+	}
 }
 
-void interface_cmdline_playit (int server_sock, char **args, const int arg_num)
+void interface_cmdline_playit (int server_sock, lists_t_strs *args)
 {
 	struct plist plist;
-	int i;
+	int ix;
 
 	srv_sock = server_sock; /* the interface is not initialized, so set it
 				   here */
 
 	if (!getcwd(cwd, sizeof(cwd)))
-		fatal ("Can't get CWD: %s.", strerror(errno));
+		fatal ("Can't get CWD: %s", strerror(errno));
 
 	plist_init (&plist);
 
-	for (i = 0; i < arg_num; i++)
-		if (is_url(args[i]) || is_sound_file(args[i])) {
-			char *path = absolute_path (args[i], cwd);
+	for (ix = 0; ix < lists_strs_size (args); ix += 1) {
+		const char *arg;
+
+		arg = lists_strs_at (args, ix);
+		if (is_url(arg) || is_sound_file(arg)) {
+			char *path = absolute_path (arg, cwd);
 			plist_add (&plist, path);
 			free (path);
 		}
+	}
 
 	if (plist_count(&plist)) {
 		int serial;
-		
+
 		send_int_to_srv (CMD_LOCK);
-		
+
 		send_playlist (&plist, 1);
-		
+
 		send_int_to_srv (CMD_GET_SERIAL);
 		serial = get_data_int ();
 		send_int_to_srv (CMD_PLIST_SET_SERIAL);
 		send_int_to_srv (serial);
-		
+
 		send_int_to_srv (CMD_UNLOCK);
-		
+
 		send_int_to_srv (CMD_PLAY);
 		send_str_to_srv ("");
 	}
 	else
-		fatal ("No files added - no sound files on command line.");
+		fatal ("No files added - no sound files on command line!");
 
 	plist_free (&plist);
 }
@@ -4138,11 +4096,11 @@ void interface_cmdline_set (int server_sock, char *arg, const int val)
 
 	while(tok) {
 
-		if(!strncmp(tok, "shuffle", 8) || !strncmp(tok,"s",2))
+		if(!strncmp (tok, "shuffle", 8) || !strncmp (tok,"s",2))
 			tok = "Shuffle";
-		else if(!strncmp(tok, "autonext", 9) || !strncmp(tok, "n",2))
+		else if(!strncmp (tok, "autonext", 9) || !strncmp (tok, "n",2))
 			tok = "AutoNext";
-		else if(!strncmp(tok, "repeat", 7) || !strncmp(tok, "r", 2))
+		else if(!strncmp (tok, "repeat", 7) || !strncmp (tok, "r", 2))
 			tok = "Repeat";
 		else {
 			fprintf (stderr, "Unknown option '%s'\n", tok);
@@ -4150,20 +4108,20 @@ void interface_cmdline_set (int server_sock, char *arg, const int val)
 		}
 
 		if(val == 2) {
-			send_int_to_srv(CMD_GET_OPTION);
-			send_str_to_srv(tok);
-			option_set_int(tok, get_data_int());			
+			send_int_to_srv (CMD_GET_OPTION);
+			send_str_to_srv (tok);
+			options_set_int (tok, get_data_int());
 		}
 
-		send_int_to_srv(CMD_SET_OPTION);
-		send_str_to_srv(tok);
+		send_int_to_srv (CMD_SET_OPTION);
+		send_str_to_srv (tok);
 
 		if(val == 2)
-			send_int_to_srv(!options_get_int(tok));
+			send_int_to_srv (!options_get_int(tok));
 		else
-			send_int_to_srv(val);
-		
-		tok = strtok_r(NULL, ",", &last);
+			send_int_to_srv (val);
+
+		tok = strtok_r (NULL, ",", &last);
 	}
 }
 
@@ -4208,18 +4166,18 @@ void interface_cmdline_formatted_info (const int server_sock,
 	char curr_time_sec_str[5];
 	char file_bitrate_str[4];
 	char file_rate_str[3];
-	
+
 	char *str;
 	info_t str_info;
-	
+
 	srv_sock = server_sock;	/* the interface is not initialized, so set it
 				   here */
 	init_playlists ();
 	file_info_reset (&curr_file);
 	file_info_block_init (&curr_file);
-	
+
 	curr_file.state = get_state ();
-	
+
 	/* extra paranoid about struct data */
 	memset(&str_info, 0, sizeof(str_info));
 	curr_time_str[0] = time_left_str[0] = time_str[0] =
@@ -4233,15 +4191,15 @@ void interface_cmdline_formatted_info (const int server_sock,
 	str_info.currentsec = curr_time_sec_str;
 	str_info.bitrate = file_bitrate_str;
 	str_info.rate = file_rate_str;
-	
+
 	/* string with formatting tags */
 	str = xstrdup(format_str);
-	
+
 	if (curr_file.state == STATE_STOP)
 		str_info.state = "STOP";
 	else {
 		int left;
-		
+
 		if (curr_file.state == STATE_PLAY)
 			str_info.state = "PLAY";
 		else if (curr_file.state == STATE_PAUSE)
@@ -4260,7 +4218,7 @@ void interface_cmdline_formatted_info (const int server_sock,
 				curr_file.tags = get_tags_no_iface (
 						curr_file.file,
 						TAGS_COMMENTS | TAGS_TIME);
-			
+
 			/* get the title */
 			if (curr_file.tags->title)
 				str_info.title = build_title (curr_file.tags);
@@ -4282,12 +4240,12 @@ void interface_cmdline_formatted_info (const int server_sock,
 
 		if (curr_file.curr_time != -1) {
 			sec_to_min (curr_time_str, curr_file.curr_time);
-		
+
 			if (curr_file.tags->time != -1) {
 				sec_to_min (curr_time_str, curr_file.curr_time);
 				left = curr_file.tags->time -
 					curr_file.curr_time;
-				sec_to_min (time_left_str, left > 0 ? left : 0);
+				sec_to_min (time_left_str, MAX(left, 0));
 			}
 		}
 		else {
@@ -4310,13 +4268,12 @@ void interface_cmdline_formatted_info (const int server_sock,
 			snprintf(time_sec_str, 5, "%d", curr_file.tags->time);
 
 		snprintf(curr_time_sec_str, 5, "%d", curr_file.curr_time);
-		snprintf(file_bitrate_str, 4, "%d",
-				curr_file.bitrate > 0 ? curr_file.bitrate : 0);
+		snprintf(file_bitrate_str, 4, "%d", MAX(curr_file.bitrate, 0));
 		snprintf(file_rate_str, 3, "%d", curr_file.rate);
 	}
 
 	str = str_repl(str, "%state", str_info.state);
-	str = str_repl(str, "%file", 
+	str = str_repl(str, "%file",
 			str_info.file ? str_info.file : "");
 	str = str_repl(str, "%title",
 			str_info.title ? str_info.title : "");
@@ -4346,7 +4303,7 @@ void interface_cmdline_formatted_info (const int server_sock,
 
 	if (str_info.title)
 		free(str_info.title);
-	
+
 	if (curr_file.state != STATE_STOP)
 		file_info_cleanup (&curr_file);
 

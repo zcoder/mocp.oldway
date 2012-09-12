@@ -1,3 +1,4 @@
+ACLOCAL_AMFLAGS = -I m4
 SUBDIRS = themes decoder_plugins
 AM_CPPFLAGS = -DSYSTEM_THEMES_DIR=\"$(pkgdatadir)/themes\" \
 	      -DPLUGIN_DIR=\"$(plugindir)/$(DECODER_PLUGIN_DIR)\"
@@ -52,6 +53,8 @@ mocp_SOURCES = log.c \
 	       tags_cache.h \
 	       utf8.c \
 	       utf8.h \
+	       rcc.c \
+	       rcc.h \
 	       audio_helper.h \
 	       audio_helper.c \
 	       softmixer.c \
@@ -65,8 +68,12 @@ mocp_SOURCES = log.c \
 EXTRA_mocp_SOURCES = gnugetopt.h \
 		     getopt.c \
 		     getopt1.c \
+		     md5.c \
+		     md5.h \
 		     null_out.c \
 		     null_out.h \
+		     sndio_out.c \
+		     sndio_out.h \
 		     oss.c \
 		     oss.h \
 		     alsa.c \
@@ -78,10 +85,13 @@ EXTRA_mocp_SOURCES = gnugetopt.h \
 man_MANS = mocp.1
 mocp_LDADD = @EXTRA_OBJS@ -lltdl
 mocp_DEPENDENCIES = @EXTRA_OBJS@
-mocp_LDFLAGS = @EXTRA_LIBS@ $(RCC_LIBS)
-EXTRA_DIST = config.example README_equalizer mocp.1 THANKS keymap.example Doxyfile \
-	     doxy_pages/decoder_api.doxy doxy_pages/main_page.doxy \
-	     doxy_pages/sound_output_driver_api.doxy moc.spec.in \
-	     moc.spec decoder_plugins
+mocp_LDFLAGS = @EXTRA_LIBS@ $(RCC_LIBS) -export-dynamic
+EXTRA_DIST = README_equalizer mocp.1 THANKS keymap.example Doxyfile \
+	         doxy_pages/decoder_api.doxy doxy_pages/main_page.doxy \
+	         doxy_pages/sound_output_driver_api.doxy
+EXTRA_DIST += @EXTRA_DISTS@
+EXTRA_DIST += tools/README tools/md5check.sh tools/maketests.sh
+noinst_DATA = tools/README
+noinst_SCRIPTS = tools/md5check.sh tools/maketests.sh
 
 doc_DATA = config.example THANKS README README_equalizer keymap.example

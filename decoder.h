@@ -13,7 +13,7 @@ extern "C" {
  *
  * On every change in the decoder API this number will be changed, so MOC will
  * not load plugins compiled with older/newer decoder.h. */
-#define DECODER_API_VERSION	8
+#define DECODER_API_VERSION	7
 
 /** Type of the decoder error. */
 enum decoder_error_type
@@ -54,21 +54,20 @@ struct decoder
 	 * This function is called once at MOC startup (once for the client and
 	 * once for the server). Optional. */
 	void (*init) ();
-	
+
 	/** Cleanup the plugin.
 	 *
 	 * This function is called once at exit (once for the client and
 	 * once for the server). Optional. */
 	void (*destroy) ();
-	
-	
+
 	/** Open the resource.
 	 *
 	 * Open the given resource (file).
 	 *
 	 * \param uri URL to the resource that can be used as the file parameter and return pointer
 	 * to io_open().
-	 * 
+	 *
 	 * \return Private decoder data. This pointer will be passed to every
 	 * other function that operates on the stream.
 	 */
@@ -94,9 +93,9 @@ struct decoder
 	 * stream. This is used to find the proper decoder for an internet
 	 * stream when searching by the MIME type failed. The decoder must not
 	 * read from this stream (io_read()), but can peek data (io_peek()).
-	 * The decoder is expected to peek a few bytes to recognize it's format.
+	 * The decoder is expected to peek a few bytes to recognize its format.
 	 * Optional.
-	 * 
+	 *
 	 * \param stream Opened stream.
 	 *
 	 * \return 1 if the decoder is able to decode data from this stream.
@@ -115,8 +114,8 @@ struct decoder
 	 *
 	 * Decode a piece of input and write it to the buffer. The buffer size
 	 * is at least 32KB, but don't make any assumptions that it is always
-	 * true. It is prefered to decode as few bytes as possible without
-	 * loosing much performance to cause very small delays.
+	 * true. It is preferred that as few bytes as possible be decoded
+	 * without loss of performance to minimise delays.
 	 *
 	 * \param data Decoder's private data.
 	 * \param buf Buffer to put data in.
@@ -128,26 +127,26 @@ struct decoder
 	 */
 	int (*decode)(void *data, char *buf, int buf_len,
 			struct sound_params *sound_params);
-	
+
 	/** Seek in the stream.
 	 *
 	 * Seek to the given position.
 	 *
 	 * \param data Decoder's private data.
-	 * \param sec Where to seek in seconds.
+	 * \param sec Where to seek in seconds (never less than zero).
 	 *
-	 * \return The position that we actually seek to or -1 on error. 
+	 * \return The position that we actually seek to or -1 on error.
 	 * -1 is not a fatal error and further decoding will be performed.
 	 */
 	int (*seek)(void *data, int sec);
 
 	/** Get tags for a file.
 	 *
-	 * Get requested file's tags. Is some tags are not available, the
+	 * Get requested file's tags. If some tags are not available, the
 	 * decoder can just not fill the field. The function can even not
 	 * fill any field.
 	 *
-	 * \param file File to get tags for.
+	 * \param file File for which to get tags.
 	 * \param tags Pointer to the tags structure where we must put
 	 * the tags. All strings must be malloc()ed.
 	 * \param tags_sel OR'ed list of requested tags (values of
@@ -155,13 +154,13 @@ struct decoder
 	 */
 	void (*info)(const char *file, struct file_tags *tags,
 			const int tags_sel);
-	
+
 	/** Get the current bitrate.
 	 *
 	 * Get the bitrate of the last decoded piece of sound.
 	 *
 	 * \param data Decoder's private data.
-	 * 
+	 *
 	 * \return Current bitrate in kbps or -1 if not available.
 	 */
 	int (*get_bitrate)(void *data);
@@ -178,18 +177,18 @@ struct decoder
 	 */
 	int (*get_duration)(void *data);
 
-	/** Get error for the last decode() invokation.
+	/** Get error for the last decode() invocation.
 	 *
-	 * Get the error for the last decode() invokation. If there was no
+	 * Get the error for the last decode() invocation. If there was no
 	 * error the type of the error must be ERROR_OK. Don't access the
 	 * error object's fields directly, there are proper functions for
 	 * that.
 	 *
 	 * \param data Decoder's private data.
-	 * \param error Pointer to the decoder_error opiect to fill.
+	 * \param error Pointer to the decoder_error object to fill.
 	 */
 	void (*get_error)(void *data, struct decoder_error *error);
-	
+
 	/** Check if the file extension is for a file that this decoder
 	 * supports.
 	 *
@@ -200,22 +199,12 @@ struct decoder
 	 */
 	int (*our_format_ext)(const char *ext);
 
-	/** Check if the file format is for a file that this decoder
-	 * supports.
-	 *
-	 * \param file (file name).
-	 *
-	 * \return Value other than 0 if a file with this format
-	 * is supported.
-	 */
-	int (*our_format_file)(const char *file);
-
 	/** Check if a stream with the given MIME type is supported by this
 	 * decoder. Optional.
 	 *
 	 * \param mime_type MIME type.
 	 *
-	 * \return Value other than 0 if a stream with this mime type is
+	 * \return Value other than 0 if a stream with this MIME type is
 	 * supported.
 	 */
 	int (*our_format_mime)(const char *mime_type);
@@ -238,7 +227,7 @@ struct decoder
 	 * optional.
 	 *
 	 * \param data Decoder's private data.
-	 * 
+	 *
 	 * \return 1 if the tags were changed from the last call of this
 	 * function or 0 if not.
 	 */
@@ -261,7 +250,7 @@ struct decoder
 	 * Get the bitrate of the whole file.
 	 *
 	 * \param data Decoder's private data.
-	 * 
+	 *
 	 * \return Average bitrate in kbps or -1 if not available.
 	 */
 	int (*get_avg_bitrate)(void *data);
@@ -278,13 +267,15 @@ typedef struct decoder *(*plugin_init_func)();
 int is_sound_file (const char *name);
 struct decoder *get_decoder (const char *file);
 struct decoder *get_decoder_by_content (struct io_stream *stream);
+const char *get_decoder_name (const struct decoder *decoder);
 void decoder_init (int debug_info);
 void decoder_cleanup ();
 char *file_type_name (const char *file);
 
 /** @defgroup decoder_error_funcs Decoder error functions
  *
- * Those functions can be used to modify variables of type struct decoder_error.
+ * These functions can be used to modify variables of the decoder_error
+ * structure.
  */
 /*@{*/
 

@@ -13,18 +13,15 @@
 # include "config.h"
 #endif
 
-/* _XOPEN_SOURCE is known to break cmpilation under OpenBSD */
+/* _XOPEN_SOURCE is known to break compilation under OpenBSD. */
 #ifndef OPENBSD
 # define _XOPEN_SOURCE  500 /* for wcswidth() */
 #endif
 
 #include <stdarg.h>
 
-#ifdef HAVE_ICONV_H
+#ifdef HAVE_ICONV
 # include <iconv.h>
-#endif
-#ifdef HAVE_RCC
-# include <librcc.h>
 #endif
 #ifdef HAVE_NL_TYPES_H
 # include <nl_types.h>
@@ -49,6 +46,7 @@
 #include "log.h"
 #include "options.h"
 #include "utf8.h"
+#include "rcc.h"
 
 static char *terminal_charset = NULL;
 static int using_utf8 = 0;
@@ -58,32 +56,8 @@ static iconv_t files_iconv_desc = (iconv_t)(-1);
 static iconv_t xterm_iconv_desc = (iconv_t)(-1);
 
 
-char *iconv_rcc (char *str)
-{
-#ifdef HAVE_RCC
-	rcc_string rccstring;
-	char *reencoded;
-
-	assert (str != NULL);
-
-	rccstring = rccFrom(NULL, 0, str);
-	if (rccstring) {
-		if (*rccstring && (reencoded = rccToCharset(NULL, "UTF-8", rccstring))) {
-		    free(str);
-		    free(rccstring);
-		    return reencoded;
-		}
-		
-		free (rccstring);
-	}
-	return str;
-#endif /* HAVE_RCC */
-	return xstrdup (str);
-}
-
-
 /* Return a malloc()ed string converted using iconv().
- * if for_file_name is not 0, uses the conversion defined for file names.
+ * If for_file_name is not 0, use the conversion defined for file names.
  * For NULL returns NULL. */
 char *iconv_str (const iconv_t desc, const char *str)
 {
@@ -104,7 +78,7 @@ char *iconv_str (const iconv_t desc, const char *str)
 	outbytesleft = sizeof(buf) - 1;
 
 	iconv (desc, NULL, NULL, NULL, NULL);
-	
+
 	while (inbytesleft) {
 		if (iconv(desc, &inbuf, &inbytesleft, &outbuf,
 					&outbytesleft)
@@ -133,7 +107,7 @@ char *iconv_str (const iconv_t desc, const char *str)
 	*outbuf = 0;
 	converted = xstrdup (buf);
 	free (str_copy);
-	
+
 	return converted;
 }
 
@@ -150,7 +124,7 @@ char *xterm_iconv_str (const char *str)
 int xwaddstr (WINDOW *win, const char *str)
 {
 	int res;
-	
+
 	if (using_utf8)
 		res = waddstr (win, str);
 	else {
@@ -163,10 +137,10 @@ int xwaddstr (WINDOW *win, const char *str)
 	return res;
 }
 
-/* Convert multi byte sequence to wide characters. Change invalid UTF-8
- * sequences to '?'. dest can be NULL like in mbstowcs().
- * If invalid_char is not null it will be set to 1 if an invalid character
- * appears in the string, 0 otherwise. */
+/* Convert multi-byte sequence to wide characters.  Change invalid UTF-8
+ * sequences to '?'.  'dest' can be NULL as in mbstowcs().
+ * If 'invalid_char' is not NULL it will be set to 1 if an invalid character
+ * appears in the string, otherwise 0. */
 static size_t xmbstowcs (wchar_t *dest, const char *src, size_t len,
 		int *invalid_char)
 {
@@ -194,7 +168,7 @@ static size_t xmbstowcs (wchar_t *dest, const char *src, size_t len,
 		}
 		else {
 			size_t converted;
-			
+
 			src++;
 			if (dest) {
 				converted = wcslen (dest);
@@ -229,14 +203,14 @@ int xwaddnstr (WINDOW *win, const char *str, const int n)
 
 	assert (n > 0);
 	assert (str != NULL);
-	
+
 	if (using_utf8) {
 
 		/* This nasty hack is because we need to count n in chars, but
-		 * [w]addnstr() takes argument in bytes (in UTF-8 i char can be
-		 * more than 1 byte. There are also problems with [w]addnwstr()
-		 * (screen garbled). I have no better idea. */
-		
+		 * [w]addnstr() takes arguments in bytes (in UTF-8 a char can be
+		 * longer than 1 byte).  There are also problems with [w]addnwstr()
+		 * (screen garbled).  I have no better idea. */
+
 		wchar_t *ucs;
 		size_t size;
 		size_t utf_num_chars;
@@ -272,7 +246,7 @@ int xwaddnstr (WINDOW *win, const char *str, const int n)
 int xmvwaddstr (WINDOW *win, const int y, const int x, const char *str)
 {
 	int res;
-	
+
 	if (using_utf8)
 		res = mvwaddstr (win, y, x, str);
 	else {
@@ -289,7 +263,7 @@ int xmvwaddnstr (WINDOW *win, const int y, const int x, const char *str,
 		const int n)
 {
 	int res;
-	
+
 	if (using_utf8)
 		res = mvwaddnstr (win, y, x, str, n);
 	else {
@@ -330,9 +304,6 @@ static void iconv_cleanup ()
 	if (iconv_desc != (iconv_t)(-1)
 			&& iconv_close(iconv_desc) == -1)
 		logit ("iconv_close() failed: %s", strerror(errno));
-#ifdef HAVE_RCC
-	rccFree ();
-#endif
 }
 
 void utf8_init ()
@@ -365,22 +336,6 @@ void utf8_init ()
 		if (iconv_desc == (iconv_t)(-1))
 			logit ("iconv_open() failed: %s", strerror(errno));
 	}
-#ifdef HAVE_RCC
-	rcc_class classes[] = {
-		{ "input", RCC_CLASS_STANDARD, NULL, NULL, "Input Encoding",
-			0 },
-		{ "output", RCC_CLASS_KNOWN, NULL, NULL,
-			"Output Encoding", 0 },
-		{ NULL, 0, NULL, NULL, NULL, 0 }
-	};
-
-	rccInit ();
-	rccInitDefaultContext(NULL, 0, 0, classes, 0);
-	rccLoad(NULL, "moc");
-	rccSetOption(NULL, RCC_OPTION_TRANSLATE,
-			RCC_OPTION_TRANSLATE_SKIP_PARRENT);
-	rccSetOption(NULL, RCC_OPTION_AUTODETECT_LANGUAGE, 1);
-#endif /* HAVE_RCC */
 
 	if (options_get_int ("FileNamesIconv"))
 	{
@@ -401,7 +356,7 @@ void utf8_cleanup ()
 	iconv_cleanup ();
 }
 
-/* Return the number of columns the string takes when displayed. */
+/* Return the number of columns the string occupies when displayed. */
 size_t strwidth (const char *s)
 {
 	wchar_t *ucs;
@@ -419,8 +374,8 @@ size_t strwidth (const char *s)
 	return width;
 }
 
-/* Return a malloc()ed string containing the tail of str maximum of len chars
- * (in columns occupied on the screen). */
+/* Return a malloc()ed string containing the tail of 'str' up to a
+ * maximum of 'len' characters (in columns occupied on the screen). */
 char *xstrtail (const char *str, const int len)
 {
 	wchar_t *ucs;
@@ -436,7 +391,7 @@ char *xstrtail (const char *str, const int len)
 	ucs = (wchar_t *)xmalloc (sizeof(wchar_t) * size);
 	xmbstowcs (ucs, str, size, NULL);
 	ucs_tail = ucs;
-	
+
 	width = wcswidth (ucs, WIDTH_MAX);
 	assert (width >= 0);
 
@@ -446,7 +401,7 @@ char *xstrtail (const char *str, const int len)
 	size = wcstombs (NULL, ucs_tail, 0) + 1;
 	tail = (char *)xmalloc (size);
 	wcstombs (tail, ucs_tail, size);
-	
+
 	free (ucs);
 
 	return tail;

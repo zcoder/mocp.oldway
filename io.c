@@ -38,6 +38,7 @@
 #include "log.h"
 #include "io.h"
 #include "options.h"
+#include "files.h"
 #ifdef HAVE_CURL
 # include "io_curl.h"
 #endif
@@ -51,7 +52,7 @@ static ssize_t io_read_mmap (struct io_stream *s, const int dont_move,
 	size_t to_read;
 
 	assert (s->mem != NULL);
-	
+
 	if (fstat(s->fd, &file_stat) == -1) {
 		logit ("stat() failed: %s", strerror(errno));
 		return -1;
@@ -59,7 +60,7 @@ static ssize_t io_read_mmap (struct io_stream *s, const int dont_move,
 
 	if (s->size != (size_t)file_stat.st_size) {
 		logit ("File size has changed");
-		
+
 		if (munmap(s->mem, s->size)) {
 			logit ("munmap() failed: %s", strerror(errno));
 			return -1;
@@ -71,7 +72,7 @@ static ssize_t io_read_mmap (struct io_stream *s, const int dont_move,
 			logit ("mmap() filed: %s", strerror(errno));
 			return -1;
 		}
-		
+
 		logit ("mmap()ed %lu bytes", (unsigned long)s->size);
 		if (s->mem_pos > s->size) {
 			logit ("File shrinked");
@@ -81,7 +82,7 @@ static ssize_t io_read_mmap (struct io_stream *s, const int dont_move,
 
 	if (s->mem_pos >= s->size)
 		return 0;
-	
+
 	to_read = MIN(count, s->size - s->mem_pos);
 	memcpy (buf, s->mem + s->mem_pos, to_read);
 
@@ -96,25 +97,25 @@ static ssize_t io_read_fd (struct io_stream *s, const int dont_move, void *buf,
 		size_t count)
 {
 	ssize_t res;
-	
+
 	res = read (s->fd, buf, count);
-	
+
 	if (res < 0)
 		return -1;
 
 	if (dont_move && lseek(s->fd, -res, SEEK_CUR) < 0)
 		return -1;
-	
+
 	return res;
 }
 
-/* Reat the data from the stream resource. If dont_move was set, the stream
- * position is unchanded. */
+/* Read the data from the stream resource.  If dont_move was set, the stream
+ * position is unchanged. */
 static ssize_t io_internal_read (struct io_stream *s, const int dont_move,
 		char *buf, size_t count)
 {
 	ssize_t res = 0;
-	
+
 	assert (s != NULL);
 	assert (buf != NULL);
 
@@ -126,7 +127,7 @@ static ssize_t io_internal_read (struct io_stream *s, const int dont_move,
 #ifdef HAVE_CURL
 	if (s->source == IO_SOURCE_CURL) {
 		if (dont_move)
-			fatal ("You can't peek data directly from curl");
+			fatal ("You can't peek data directly from CURL!");
 		res = io_curl_read (s, buf, count);
 	}
 	else
@@ -168,7 +169,7 @@ static off_t io_seek_buffered (struct io_stream *s, const long where)
 		res = io_seek_fd (s, where);
 	else
 		fatal ("Unknown io_stream->source: %d", s->source);
-	
+
 	LOCK (s->buf_mutex);
 	fifo_buf_clear (&s->buf);
 	pthread_cond_signal (&s->buf_free_cond);
@@ -182,7 +183,7 @@ static off_t io_seek_buffered (struct io_stream *s, const long where)
 static off_t io_seek_unbuffered (struct io_stream *s, const long where)
 {
 	off_t res = -1;
-	
+
 #ifdef HAVE_MMAP
 	if (s->source == IO_SOURCE_MMAP)
 		res = io_seek_mmap (s, where);
@@ -197,7 +198,7 @@ off_t io_seek (struct io_stream *s, off_t offset, int whence)
 {
 	off_t res;
 	off_t new_pos = 0;
-	
+
 	assert (s != NULL);
 	assert (s->opened);
 
@@ -221,7 +222,7 @@ off_t io_seek (struct io_stream *s, off_t offset, int whence)
 		default:
 			fatal ("Bad whence value: %d", whence);
 	}
-	
+
 	if (s->buffered)
 		res = io_seek_buffered (s, new_pos);
 	else
@@ -230,7 +231,7 @@ off_t io_seek (struct io_stream *s, off_t offset, int whence)
 	if (res != -1)
 		s->pos = res;
 	UNLOCK (s->io_mutex);
-			
+
 	if (res != -1)
 		debug ("Seek to: %lu", (unsigned long)res);
 	else
@@ -239,7 +240,7 @@ off_t io_seek (struct io_stream *s, off_t offset, int whence)
 	return res;
 }
 
-/* Wake up the IO reading thread */
+/* Wake up the IO reading thread. */
 static void io_wake_up (struct io_stream *s ATTR_UNUSED)
 {
 #ifdef HAVE_CURL
@@ -252,7 +253,7 @@ static void io_wake_up (struct io_stream *s ATTR_UNUSED)
 void io_abort (struct io_stream *s)
 {
 	assert (s != NULL);
-	
+
 	if (s->buffered && !s->stop_read_thread) {
 		logit ("Aborting...");
 		LOCK (s->buf_mutex);
@@ -268,13 +269,14 @@ void io_abort (struct io_stream *s)
 /* Close the stream and free all resources associated with it. */
 void io_close (struct io_stream *s)
 {
+	int rc;
+
 	assert (s != NULL);
 
 	logit ("Closing stream...");
 
-
 	if (s->opened) {
-		
+
 		if (s->buffered) {
 			io_abort (s);
 
@@ -282,7 +284,7 @@ void io_close (struct io_stream *s)
 			pthread_join (s->read_thread, NULL);
 			logit ("IO read thread exited");
 		}
-	
+
 #ifdef HAVE_MMAP
 		if (s->source == IO_SOURCE_MMAP) {
 			if (s->mem && munmap(s->mem, s->size))
@@ -290,7 +292,7 @@ void io_close (struct io_stream *s)
 			close (s->fd);
 		}
 #endif
-		
+
 #ifdef HAVE_CURL
 		if (s->source == IO_SOURCE_CURL)
 			io_curl_close (s);
@@ -300,12 +302,14 @@ void io_close (struct io_stream *s)
 
 		if (s->buffered) {
 			fifo_buf_destroy (&s->buf);
-			if (pthread_cond_destroy(&s->buf_free_cond))
-				logit ("Destroying buf_free_cond faild: %s",
-						strerror(errno));
-			if (pthread_cond_destroy(&s->buf_fill_cond))
-				logit ("Destroying buf_fill_cond faild: %s",
-						strerror(errno));
+			rc = pthread_cond_destroy (&s->buf_free_cond);
+			if (rc != 0)
+				logit ("Destroying buf_free_cond failed: %s",
+						strerror (rc));
+			rc = pthread_cond_destroy (&s->buf_fill_cond);
+			if (rc != 0)
+				logit ("Destroying buf_fill_cond failed: %s",
+						strerror (rc));
 		}
 
 		if (s->metadata.title)
@@ -314,12 +318,15 @@ void io_close (struct io_stream *s)
 			free (s->metadata.url);
 	}
 
-	if (pthread_mutex_destroy(&s->buf_mutex))
-		logit ("Destroying buf_mutex failed: %s", strerror(errno));
-	if (pthread_mutex_destroy(&s->io_mutex))
-		logit ("Destroying io_mutex failed: %s", strerror(errno));
-	if (pthread_mutex_destroy(&s->metadata.mutex))
-		logit ("Destroying metadata mutex failed: %s", strerror(errno));
+	rc = pthread_mutex_destroy (&s->buf_mutex);
+	if (rc != 0)
+		logit ("Destroying buf_mutex failed: %s", strerror (rc));
+	rc = pthread_mutex_destroy (&s->io_mutex);
+	if (rc != 0)
+		logit ("Destroying io_mutex failed: %s", strerror (rc));
+	rc = pthread_mutex_destroy (&s->metadata.mutex);
+	if (rc != 0)
+		logit ("Destroying metadata mutex failed: %s", strerror (rc));
 
 	if (s->strerror)
 		free (s->strerror);
@@ -341,28 +348,28 @@ static void *io_read_thread (void *data)
 
 		LOCK (s->io_mutex);
 		debug ("Reading...");
-		
+
 		LOCK (s->buf_mutex);
 		s->after_seek = 0;
 		UNLOCK (s->buf_mutex);
-		
+
 		read_buf_fill = io_internal_read (s, 0, read_buf,
 				sizeof(read_buf));
 		UNLOCK (s->io_mutex);
 		debug ("Read %d bytes", (int)read_buf_fill);
-		
+
 		LOCK (s->buf_mutex);
 
 		if (s->stop_read_thread) {
 			UNLOCK (s->buf_mutex);
 			break;
 		}
-		
+
 		if (read_buf_fill < 0) {
 
 			s->errno_val = errno;
 			s->read_error = 1;
-			logit ("Exiting due tu read error.");
+			logit ("Exiting due to read error.");
 			pthread_cond_broadcast (&s->buf_fill_cond);
 			UNLOCK (s->buf_mutex);
 			break;
@@ -385,7 +392,7 @@ static void *io_read_thread (void *data)
 
 			debug ("Buffer fill: %lu", (unsigned long)
 					fifo_buf_get_fill(&s->buf));
-			
+
 			put = fifo_buf_put (&s->buf,
 					read_buf + read_buf_pos,
 					read_buf_fill - read_buf_pos);
@@ -419,7 +426,7 @@ static void *io_read_thread (void *data)
 
 	if (s->stop_read_thread)
 		logit ("Stop request");
-	
+
 	logit ("Exiting IO read thread");
 
 	return NULL;
@@ -460,14 +467,15 @@ static void io_open_file (struct io_stream *s, const char *file)
 #else
 		s->source = IO_SOURCE_FD;
 #endif
-		
+
 		s->opened = 1;
 	}
 }
 
-/* Open the file. Return NULL on error. */
+/* Open the file. */
 struct io_stream *io_open (const char *file, const int buffered)
 {
+	int rc;
 	struct io_stream *s;
 
 	assert (file != NULL);
@@ -482,8 +490,7 @@ struct io_stream *io_open (const char *file, const int buffered)
 
 #ifdef HAVE_CURL
 	s->curl.mime_type = NULL;
-	if (!strncasecmp(file, "http://", sizeof("http://")-1)
-			|| !strncasecmp(file, "ftp://", sizeof("ftp://")-1))
+	if (is_url (file))
 		io_curl_open (s, file);
 	else
 #endif
@@ -495,7 +502,7 @@ struct io_stream *io_open (const char *file, const int buffered)
 
 	if (!s->opened)
 		return s;
-				
+
 	s->stop_read_thread = 0;
 	s->eof = 0;
 	s->after_seek = 0;
@@ -505,32 +512,33 @@ struct io_stream *io_open (const char *file, const int buffered)
 	if (buffered) {
 		fifo_buf_init (&s->buf, options_get_int("InputBuffer") * 1024);
 		s->prebuffer = options_get_int("Prebuffering") * 1024;
-		
+
 		pthread_cond_init (&s->buf_free_cond, NULL);
 		pthread_cond_init (&s->buf_fill_cond, NULL);
 
-		if (pthread_create(&s->read_thread, NULL, io_read_thread, s))
-			fatal ("Can't create read thread: %s", strerror(errno));
+		rc = pthread_create (&s->read_thread, NULL, io_read_thread, s);
+		if (rc != 0)
+			fatal ("Can't create read thread: %s", strerror (rc));
 	}
 
 	return s;
 }
 
-/* Return != 0 if the there were no errors in the stream. */
+/* Return non-zero if the stream was free of errors. */
 static int io_ok_nolock (struct io_stream *s)
 {
 	return !s->read_error && s->errno_val == 0;
 }
 
-/* Return != 0 if the there were no errors in the stream. */
+/* Return non-zero if the stream was free of errors. */
 int io_ok (struct io_stream *s)
 {
 	int res;
-	
+
 	LOCK (s->buf_mutex);
 	res = io_ok_nolock (s);
 	UNLOCK (s->buf_mutex);
-	
+
 	return res;
 }
 
@@ -557,16 +565,16 @@ static ssize_t io_peek_internal (struct io_stream *s, void *buf, size_t count)
 	debug ("Read %d bytes", (int)received);
 
 	UNLOCK (s->buf_mutex);
-	
+
 	return io_ok(s) ? received : -1;
 }
 
 /* Wait until there will be s->prebuffer bytes in the buffer or some event
- * occurs causing that the prebuffering is not possible. */
+ * occurs which prevents prebuffering. */
 void io_prebuffer (struct io_stream *s, const size_t to_fill)
 {
 	logit ("prebuffering to %lu bytes...", (unsigned long)to_fill);
-	
+
 	LOCK (s->buf_mutex);
 	while (io_ok_nolock(s) && !s->stop_read_thread && !s->eof
 			&& to_fill > fifo_buf_get_fill(&s->buf)) {
@@ -604,7 +612,7 @@ static ssize_t io_read_buffered (struct io_stream *s, void *buf, size_t count)
 	s->pos += received;
 
 	UNLOCK (s->buf_mutex);
-	
+
 	return received ? received : (s->read_error ? -1 : 0);
 }
 
@@ -616,7 +624,7 @@ static ssize_t io_read_unbuffered (struct io_stream *s, const int dont_move,
 	ssize_t res;
 
 	assert (!s->eof);
-	
+
 	res = io_internal_read (s, dont_move, buf, count);
 
 	if (!dont_move) {
@@ -628,12 +636,12 @@ static ssize_t io_read_unbuffered (struct io_stream *s, const int dont_move,
 	return res;
 }
 
-/* Read data from the string to the buffer of size count. Return the number
+/* Read data from the stream to the buffer of size count.  Return the number
  * of bytes read, 0 on EOF, < 0 on error. */
 ssize_t io_read (struct io_stream *s, void *buf, size_t count)
 {
 	ssize_t received;
-	
+
 	assert (s != NULL);
 	assert (buf != NULL);
 	assert (s->opened);
@@ -656,7 +664,7 @@ ssize_t io_read (struct io_stream *s, void *buf, size_t count)
 ssize_t io_peek (struct io_stream *s, void *buf, size_t count)
 {
 	ssize_t received;
-	
+
 	assert (s != NULL);
 	assert (buf != NULL);
 
@@ -674,10 +682,10 @@ ssize_t io_peek (struct io_stream *s, void *buf, size_t count)
 char *io_strerror (struct io_stream *s)
 {
 	char err[256];
-	
+
 	if (s->strerror)
 		free (s->strerror);
-	
+
 #ifdef HAVE_CURL
 	if (s->source == IO_SOURCE_CURL)
 		io_curl_strerror (s);
@@ -697,7 +705,7 @@ char *io_strerror (struct io_stream *s)
 ssize_t io_file_size (const struct io_stream *s)
 {
 	assert (s != NULL);
-	
+
 	return s->size;
 }
 
@@ -705,7 +713,7 @@ ssize_t io_file_size (const struct io_stream *s)
 long io_tell (struct io_stream *s)
 {
 	long res = -1;
-	
+
 	assert (s != NULL);
 
 	if (s->buffered) {
@@ -727,7 +735,7 @@ int io_eof (struct io_stream *s)
 	int eof;
 
 	assert (s != NULL);
-	
+
 	LOCK (s->buf_mutex);
 	eof = (s->eof && (!s->buffered || !fifo_buf_get_fill(&s->buf))) ||
 		s->stop_read_thread;
@@ -806,15 +814,15 @@ void io_set_metadata_url (struct io_stream *s, const char *url)
 	UNLOCK (s->metadata.mutex);
 }
 
-/* Set the callback function invokedwhen the fill of the buffer changes.
- * data_ptr is a pointer passed to this function along with the pointer
- * to the stream. */
+/* Set the callback function to be invoked when the fill of the buffer
+ * changes.  data_ptr is a pointer passed to this function along with
+ * the pointer to the stream. */
 void io_set_buf_fill_callback (struct io_stream *s,
 		buf_fill_callback_t callback, void *data_ptr)
 {
 	assert (s != NULL);
 	assert (callback != NULL);
-	
+
 	LOCK (s->buf_mutex);
 	s->buf_fill_callback = callback;
 	s->buf_fill_callback_data = data_ptr;
@@ -826,4 +834,3 @@ int io_seekable (const struct io_stream *s)
 {
 	return s->source == IO_SOURCE_FD || s->source == IO_SOURCE_MMAP;
 }
-

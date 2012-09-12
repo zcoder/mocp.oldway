@@ -25,7 +25,7 @@
 #endif
 #include <assert.h>
 
-#include <faad.h>
+#include <neaacdec.h>
 #include <id3tag.h>
 
 #define DEBUG
@@ -45,13 +45,13 @@ struct aac_data
 	int rbuf_len;
 	int rbuf_pos;
 
-	uint8_t channels;
-	uint32_t sample_rate;
+	int channels;
+	int sample_rate;
 
 	char *overflow_buf;
 	int overflow_buf_len;
 
-	faacDecHandle decoder;	/* typedef void * */
+	NeAACDecHandle decoder;	/* typedef void * */
 
 	int ok; /* was this stream successfully opened? */
 	struct decoder_error error;
@@ -196,10 +196,9 @@ static int buffer_fill_frame(struct aac_data *data)
 
 static int aac_count_time (struct aac_data *data)
 {
-	faacDecFrameInfo frame_info;
+	NeAACDecFrameInfo frame_info;
 	int samples = 0, bytes = 0, frames = 0;
 	off_t file_size;
-	char *sample_buf;
 	long saved_pos;
 
 	file_size = io_file_size (data->stream);
@@ -213,8 +212,8 @@ static int aac_count_time (struct aac_data *data)
 		if (buffer_fill_frame(data) <= 0)
 			break;
 
-		sample_buf = faacDecDecode(data->decoder, &frame_info,
-			buffer_data(data), buffer_length(data));
+		NeAACDecDecode (data->decoder, &frame_info,
+		                buffer_data (data), buffer_length (data));
 		if (frame_info.error == 0 && frame_info.samples > 0) {
 			samples += frame_info.samples;
 			bytes += frame_info.bytesconsumed;
@@ -244,21 +243,23 @@ static int aac_count_time (struct aac_data *data)
 static void *aac_open_internal (struct io_stream *stream, const char *fname)
 {
 	struct aac_data *data;
-	faacDecConfigurationPtr neaac_cfg;
+	NeAACDecConfigurationPtr neaac_cfg;
+	unsigned char channels;
+	unsigned long sample_rate;
 	int n;
 
 	/* init private struct */
 	data = (struct aac_data *)xmalloc (sizeof(struct aac_data));
 	memset (data, 0, sizeof(struct aac_data));
 	data->ok = 0;
-	data->decoder = faacDecOpen();
+	data->decoder = NeAACDecOpen();
 
 	/* set decoder config */
-	neaac_cfg = faacDecGetCurrentConfiguration(data->decoder);
+	neaac_cfg = NeAACDecGetCurrentConfiguration(data->decoder);
 	neaac_cfg->outputFormat = FAAD_FMT_16BIT;	/* force 16 bit audio */
 	neaac_cfg->downMatrix = 1;			/* 5.1 -> stereo */
 	neaac_cfg->dontUpSampleImplicitSBR = 0;		/* upsample, please! */
-	faacDecSetConfiguration(data->decoder, neaac_cfg);
+	NeAACDecSetConfiguration(data->decoder, neaac_cfg);
 
 	if (stream)
 		data->stream = stream;
@@ -268,6 +269,7 @@ static void *aac_open_internal (struct io_stream *stream, const char *fname)
 			decoder_error (&data->error, ERROR_FATAL, 0,
 					"Can't open AAC file: %s",
 					io_strerror(data->stream));
+			io_close (data->stream);
 			return data;
 		}
 	}
@@ -280,7 +282,7 @@ static void *aac_open_internal (struct io_stream *stream, const char *fname)
 	}
 
 	/* in case of a bug, make sure there is at least some data
-	 * in the buffer for faacDecInit() to work with.
+	 * in the buffer for NeAACDecInit() to work with.
 	 */
 	if (buffer_fill_min(data, 256) <= 0) {
 		logit ("not enough data");
@@ -290,16 +292,20 @@ static void *aac_open_internal (struct io_stream *stream, const char *fname)
 	}
 
 	/* init decoder, returns the length of the header (if any) */
-	n = faacDecInit (data->decoder, buffer_data(data), buffer_length(data),
-		&data->sample_rate, &data->channels);
+	channels = (unsigned char)data->channels;
+	sample_rate = data->sample_rate;
+	n = NeAACDecInit (data->decoder, buffer_data(data), buffer_length(data),
+		&sample_rate, &channels);
+	data->channels = channels;
+	data->sample_rate = (int)sample_rate;
 	if (n < 0) {
-		logit ("faacDecInit failed");
+		logit ("NeAACDecInit failed");
 		decoder_error (&data->error, ERROR_FATAL, 0,
 				"libfaad can't open this stream");
 		return data;
 	}
 
-	logit ("sample rate %uHz, channels %d\n", (unsigned)data->sample_rate,
+	logit ("sample rate %uHz, channels %d", (unsigned)data->sample_rate,
 			(int)data->channels);
 	if (!data->sample_rate || !data->channels) {
 		decoder_error (&data->error, ERROR_FATAL, 0,
@@ -308,10 +314,10 @@ static void *aac_open_internal (struct io_stream *stream, const char *fname)
 	}
 
 	/* skip the header */
-	logit ("skipping header (%d bytes)\n", n);
+	logit ("skipping header (%d bytes)", n);
 	buffer_consume (data, n);
 
-	/*faacDecInitDRM(data->decoder, data->sample_rate, data->channels);*/
+	/*NeAACDecInitDRM(data->decoder, data->sample_rate, data->channels);*/
 
 	if (fname) {
 		data->duration = aac_count_time (data);
@@ -343,7 +349,7 @@ static void aac_close (void *prv_data)
 {
 	struct aac_data *data = (struct aac_data *)prv_data;
 
-	faacDecClose (data->decoder);
+	NeAACDecClose (data->decoder);
 	io_close (data->stream);
 	decoder_error_clear (&data->error);
 	free (data);
@@ -376,7 +382,7 @@ static void aac_info (const char *file_name,
 		struct id3_tag *tag;
 		struct id3_file *id3file;
 		char *track = NULL;
-		
+
 		id3file = id3_file_open (file_name, ID3_FILE_MODE_READONLY);
 		if (!id3file)
 			return;
@@ -386,10 +392,10 @@ static void aac_info (const char *file_name,
 			info->title = get_tag (tag, ID3_FRAME_TITLE);
 			info->album = get_tag (tag, ID3_FRAME_ALBUM);
 			track = get_tag (tag, ID3_FRAME_TRACK);
-			
+
 			if (track) {
 				char *end;
-				
+
 				info->track = strtol (track, &end, 10);
 				if (end == track)
 					info->track = -1;
@@ -412,6 +418,8 @@ static void aac_info (const char *file_name,
 
 static int aac_seek (void *prv_data ATTR_UNUSED, int sec ATTR_UNUSED)
 {
+	assert (sec >= 0);
+
 #if 0
 	struct aac_data *data = (struct aac_data *)prv_data;
 
@@ -437,7 +445,7 @@ static int decode_one_frame (struct aac_data *data, void *buffer, int count)
 {
 	unsigned char *aac_data;
 	unsigned int aac_data_size;
-	faacDecFrameInfo frame_info;
+	NeAACDecFrameInfo frame_info;
 	char *sample_buf;
 	int bytes, rc;
 
@@ -451,25 +459,29 @@ static int decode_one_frame (struct aac_data *data, void *buffer, int count)
 	aac_data_size = buffer_length (data);
 
 	/* aac data -> raw pcm */
-	sample_buf = faacDecDecode (data->decoder, &frame_info, aac_data, aac_data_size);
+	sample_buf = NeAACDecDecode (data->decoder, &frame_info, aac_data, aac_data_size);
 
 	buffer_consume (data, frame_info.bytesconsumed);
 
 	if (!sample_buf || frame_info.bytesconsumed <= 0) {
-		logit ("fatal error: %s", faacDecGetErrorMessage(frame_info.error));
+		decoder_error (&data->error, ERROR_FATAL, 0, "%s",
+		               NeAACDecGetErrorMessage (frame_info.error));
 		return -1;
 	}
 
 	if (frame_info.error != 0) {
-		logit ("frame error: %s", faacDecGetErrorMessage(frame_info.error));
+		decoder_error (&data->error, ERROR_STREAM, 0, "%s",
+		               NeAACDecGetErrorMessage (frame_info.error));
 		return -2;
 	}
 
 	if (frame_info.samples <= 0)
 		return -2;
 
-	if (frame_info.channels != data->channels || frame_info.samplerate != data->sample_rate) {
-		logit ("invalid channel or sample_rate count\n");
+	if (frame_info.channels != (unsigned char)data->channels ||
+	    frame_info.samplerate != (unsigned long)data->sample_rate) {
+		decoder_error (&data->error, ERROR_STREAM, 0, "%s",
+		               "Invalid channel or sample_rate count");
 		return -2;
 	}
 
@@ -487,7 +499,7 @@ static int decode_one_frame (struct aac_data *data, void *buffer, int count)
 	}
 
 	data->bitrate = frame_info.bytesconsumed * 8 / (bytes / 2.0 /
-			data->channels / data->sample_rate) / 1000; 
+			data->channels / data->sample_rate) / 1000;
 
 	return bytes;
 }
@@ -521,7 +533,7 @@ static int aac_decode (void *prv_data, char *buf, int buf_len,
 		rc = decode_one_frame (data, buf, buf_len);
 	} while (rc == -2);
 
-	return rc > 0 ? rc : 0;
+	return MAX(rc, 0);
 }
 
 static int aac_get_bitrate (void *prv_data)
@@ -547,18 +559,14 @@ static int aac_get_duration (void *prv_data)
 	return -1;
 }
 
-static void aac_get_name (const char *file, char buf[4])
+static void aac_get_name (const char *file ATTR_UNUSED, char buf[4])
 {
-	char *ext = ext_pos (file);
-
-	if (!strcasecmp(ext, "aac"))
-		strcpy (buf, "AAC");
+	strcpy (buf, "AAC");
 }
 
 static int aac_our_format_ext (const char *ext)
 {
-	return !strcasecmp(ext, "m4a")
-		|| !strcasecmp(ext, "aac");
+	return !strcasecmp (ext, "aac");
 }
 
 static void aac_get_error (void *prv_data, struct decoder_error *error)
@@ -570,8 +578,10 @@ static void aac_get_error (void *prv_data, struct decoder_error *error)
 
 static int aac_our_mime (const char *mime)
 {
-	return !strcmp(mime, "audio/aac")
-		|| !strcmp(mime, "audio/aacp");
+	return !strcasecmp (mime, "audio/aac")
+		|| !strncasecmp (mime, "audio/aac;", 10)
+		|| !strcasecmp (mime, "audio/aacp")
+		|| !strncasecmp (mime, "audio/aacp;", 11);
 }
 
 static struct decoder aac_decoder = {
@@ -589,7 +599,6 @@ static struct decoder aac_decoder = {
 	aac_get_duration,
 	aac_get_error,
 	aac_our_format_ext,
-	NULL,
 	aac_our_mime,
 	aac_get_name,
 	NULL,

@@ -1,0 +1,5 @@
+
+./configure --with-rcc --with-alsa --with-vorbis --with-samplerate --with-curl --disable-debug
+Если русские символы отображаются в виде решеток (###) – не забываем установить libncursesw-dev:
+
+sudo apt-get install libncursesw5-dev

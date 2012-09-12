@@ -18,8 +18,13 @@
 #include <stdio.h>
 #include <errno.h>
 #include <assert.h>
+#ifndef HAVE_TREMOR
 #include <vorbis/vorbisfile.h>
 #include <vorbis/codec.h>
+#else
+#include <tremor/ivorbisfile.h>
+#include <tremor/ivorbiscodec.h>
+#endif
 
 #define DEBUG
 
@@ -28,6 +33,24 @@
 #include "decoder.h"
 #include "io.h"
 #include "audio.h"
+
+/* These merely silence compiler warnings about unused definitions in
+ * the Vorbis library header files. */
+#if defined(HAVE__ATTRIBUTE__) && !defined(HAVE_TREMOR)
+static ov_callbacks *vorbis_unused[] ATTR_UNUSED = {
+	&OV_CALLBACKS_DEFAULT,
+	&OV_CALLBACKS_NOCLOSE,
+	&OV_CALLBACKS_STREAMONLY,
+	&OV_CALLBACKS_STREAMONLY_NOCLOSE
+};
+#endif
+
+/* Tremor defines time as 64-bit integer milliseconds. */
+#ifndef HAVE_TREMOR
+static const double time_scaler = 1;
+#else
+static const ogg_int64_t time_scaler = 1000;
+#endif
 
 struct vorbis_data
 {
@@ -82,7 +105,7 @@ static void get_comment_tags (OggVorbis_File *vf, struct file_tags *info)
 static char *vorbis_strerror (const int code)
 {
 	char *err;
-	
+
 	switch (code) {
 		case OV_EREAD:
 			err = "read error";
@@ -112,7 +135,6 @@ static void vorbis_tags (const char *file_name, struct file_tags *info,
 {
 	OggVorbis_File vf;
 	FILE *file;
-	int vorbis_time;
 	int err_code;
 
 	if (!(file = fopen (file_name, "r"))) {
@@ -125,22 +147,22 @@ static void vorbis_tags (const char *file_name, struct file_tags *info,
 	if (tags_sel & TAGS_TIME) {
 		if ((err_code = ov_open(file, &vf, NULL, 0)) < 0) {
 			char *vorbis_err = vorbis_strerror (err_code);
-			
+
 			logit ("Can't open %s: %s", file_name, vorbis_err);
 			free (vorbis_err);
 			fclose (file);
-			
+
 			return;
 		}
 	}
 	else {
 		if ((err_code = ov_test(file, &vf, NULL, 0)) < 0) {
 			char *vorbis_err = vorbis_strerror (err_code);
-			
+
 			logit ("Can't open %s: %s", file_name, vorbis_err);
 			free (vorbis_err);
 			fclose (file);
-			
+
 			return;
 		}
 	}
@@ -148,9 +170,13 @@ static void vorbis_tags (const char *file_name, struct file_tags *info,
 	if (tags_sel & TAGS_COMMENTS)
 		get_comment_tags (&vf, info);
 
-	if ((tags_sel & TAGS_TIME)
-			&& (vorbis_time = ov_time_total(&vf, -1)) >= 0)
-		info->time = vorbis_time;
+	if (tags_sel & TAGS_TIME) {
+		int vorbis_time;
+
+	    vorbis_time = ov_time_total (&vf, -1) / time_scaler;
+	    if (vorbis_time >= 0)
+			info->time = vorbis_time;
+	}
 
 	ov_clear (&vf);
 }
@@ -161,7 +187,7 @@ static size_t read_callback (void *ptr, size_t size, size_t nmemb,
 	ssize_t res;
 
 	res = io_read (datasource, ptr, size * nmemb);
-	
+
 	/* libvorbisfile expects the read callback to return >= 0 with errno
 	 * set to non zero on error. */
 	if (res < 0) {
@@ -170,7 +196,7 @@ static size_t read_callback (void *ptr, size_t size, size_t nmemb,
 			errno = 0xffff;
 		res = 0;
 	}
-	else 
+	else
 		res /= size;
 
 	return res;
@@ -205,12 +231,12 @@ static void vorbis_open_stream_internal (struct vorbis_data *data)
 	};
 
 	data->tags = tags_new ();
-	
+
 	if ((res = ov_open_callbacks(data->stream, &data->vf, NULL, 0,
 					callbacks)) < 0) {
 		char *vorbis_err = vorbis_strerror (res);
-		
-		decoder_error (&data->error, ERROR_FATAL, 0,
+
+		decoder_error (&data->error, ERROR_FATAL, 0, "%s",
 				vorbis_err);
 		debug ("ov_open error: %s", vorbis_err);
 		free (vorbis_err);
@@ -219,10 +245,10 @@ static void vorbis_open_stream_internal (struct vorbis_data *data)
 	}
 	else {
 		data->last_section = -1;
-		data->avg_bitrate = ov_bitrate(&data->vf, -1) / 1000;
+		data->avg_bitrate = ov_bitrate (&data->vf, -1) / 1000;
 		data->bitrate = data->avg_bitrate;
-		if ((data->duration = ov_time_total(&data->vf, -1))
-				== OV_EINVAL)
+		data->duration = ov_time_total (&data->vf, -1) / time_scaler;
+		if (data->duration == OV_EINVAL)
 			data->duration = -1;
 		data->ok = 1;
 		get_comment_tags (&data->vf, data->tags);
@@ -248,7 +274,7 @@ static void *vorbis_open (const char *file)
 	}
 	else
 		vorbis_open_stream_internal (data);
-	
+
 	return data;
 }
 
@@ -256,8 +282,8 @@ static int vorbis_can_decode (struct io_stream *stream)
 {
 	char buf[34];
 
-	if (io_peek(stream, buf, 34) == 34 && !memcmp(buf, "OggS", 5)
-			&& !memcpy(buf + 28, "vorbis", 6))
+	if (io_peek (stream, buf, 34) == 34 && !memcmp (buf, "OggS", 4)
+			&& !memcmp (buf + 28, "\01vorbis", 7))
 		return 1;
 
 	return 0;
@@ -273,7 +299,7 @@ static void *vorbis_open_stream (struct io_stream *stream)
 	decoder_error_init (&data->error);
 	data->stream = stream;
 	vorbis_open_stream_internal (data);
-	
+
 	return data;
 }
 
@@ -296,10 +322,9 @@ static int vorbis_seek (void *prv_data, int sec)
 {
 	struct vorbis_data *data = (struct vorbis_data *)prv_data;
 
-	if (sec < 0)
-		sec = 0;
+	assert (sec >= 0);
 
-	return ov_time_seek (&data->vf, sec) ? -1 : sec;
+	return ov_time_seek (&data->vf, sec * time_scaler) ? -1 : sec;
 }
 
 static int vorbis_decode (void *prv_data, char *buf, int buf_len,
@@ -314,8 +339,13 @@ static int vorbis_decode (void *prv_data, char *buf, int buf_len,
 	decoder_error_clear (&data->error);
 
 	while (1) {
-		ret = ov_read(&data->vf, buf, buf_len, 0, 2, 1,
-				&current_section);
+#ifndef HAVE_TREMOR
+		ret = ov_read(&data->vf, buf, buf_len,
+		              (SFMT_NE == SFMT_LE ? 0 : 1),
+		              2, 1, &current_section);
+#else
+		ret = ov_read(&data->vf, buf, buf_len, &current_section);
+#endif
 		if (ret == 0)
 			return 0;
 		if (ret < 0) {
@@ -323,10 +353,10 @@ static int vorbis_decode (void *prv_data, char *buf, int buf_len,
 					"Error in the stream!");
 			continue;
 		}
-		
+
 		if (current_section != data->last_section) {
 			logit ("section change or first section");
-			
+
 			data->last_section = current_section;
 			data->tags_change = 1;
 			tags_free (data->tags);
@@ -338,7 +368,7 @@ static int vorbis_decode (void *prv_data, char *buf, int buf_len,
 		assert (info != NULL);
 		sound_params->channels = info->channels;
 		sound_params->rate = info->rate;
-		sound_params->fmt = SFMT_S16 | SFMT_LE;
+		sound_params->fmt = SFMT_S16 | SFMT_NE;
 
 		/* Update the bitrate information */
 		bitrate = ov_bitrate_instant (&data->vf);
@@ -375,7 +405,7 @@ static int vorbis_get_bitrate (void *prv_data)
 static int vorbis_get_avg_bitrate (void *prv_data)
 {
 	struct vorbis_data *data = (struct vorbis_data *)prv_data;
-	
+
 	return data->avg_bitrate;
 }
 
@@ -400,8 +430,8 @@ static void vorbis_get_name (const char *file ATTR_UNUSED, char buf[4])
 
 static int vorbis_our_format_ext (const char *ext)
 {
-	return !strcasecmp(ext, "ogg")
-		|| !strcasecmp(ext, "oga");
+	return !strcasecmp (ext, "ogg")
+		|| !strcasecmp (ext, "oga");
 }
 
 static void vorbis_get_error (void *prv_data, struct decoder_error *error)
@@ -413,8 +443,10 @@ static void vorbis_get_error (void *prv_data, struct decoder_error *error)
 
 static int vorbis_our_mime (const char *mime)
 {
-	return !strcmp(mime, "application/ogg")
-		|| !strcmp(mime, "application/x-ogg");
+	return !strcasecmp (mime, "application/ogg")
+		|| !strncasecmp (mime, "application/ogg;", 16)
+		|| !strcasecmp (mime, "application/x-ogg")
+		|| !strncasecmp (mime, "application/x-ogg;", 18);
 }
 
 static struct decoder vorbis_decoder = {
@@ -432,7 +464,6 @@ static struct decoder vorbis_decoder = {
 	vorbis_get_duration,
 	vorbis_get_error,
 	vorbis_our_format_ext,
-	NULL,
 	vorbis_our_mime,
 	vorbis_get_name,
 	vorbis_current_tags,
@@ -443,4 +474,17 @@ static struct decoder vorbis_decoder = {
 struct decoder *plugin_init ()
 {
 	return &vorbis_decoder;
+}
+
+/* Return true if the Vorbis decoder is using Tremor, otherwise false.
+ * This is used by the decoder plugin loader so it can document which
+ * library is being used without requiring the decoder and the loader
+ * be built with the same HAVE_TREMOR setting. */
+bool vorbis_is_tremor ()
+{
+#ifdef HAVE_TREMOR
+	return true;
+#else
+	return false;
+#endif
 }

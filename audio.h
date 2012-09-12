@@ -23,16 +23,16 @@ enum sfmt_fmt
 	SFMT_FLOAT =	0x00000040, /*!< float in range -1.0 to 1.0 */
 };
 
-/** Sample endianes.
+/** Sample endianness.
  *
- * Sample endianes - one of them must be set for 16-bit and 24-bit formats.
+ * Sample endianness - one of them must be set for 16-bit and 24-bit formats.
  */
-enum sfmt_endianes
+enum sfmt_endianness
 {
 	SFMT_LE =	0x00001000, /*!< little-endian */
 	SFMT_BE =	0x00002000, /*!< big-endian */
 
-/** Define native endianes to SFMT_LE or SFMT_BE. */
+/** Define native endianness to SFMT_LE or SFMT_BE. */
 #ifdef WORDS_BIGENDIAN
 	SFMT_NE =	SFMT_BE
 #else
@@ -45,20 +45,20 @@ enum sfmt_endianes
  * Masks used to extract only one type of information from the sound format.
  */
 /*@{*/
-#define SFMT_MASK_FORMAT	0x00000fff /*!< sample format */
-#define SFMT_MASK_ENDIANES	0x00003000 /*!< sample endianes */
+#define SFMT_MASK_FORMAT		0x00000fff /*!< sample format */
+#define SFMT_MASK_ENDIANNESS	0x00003000 /*!< sample endianness */
 /*@}*/
 
 /** Return a value other than 0 if the sound format seems to be proper. */
 #define sound_format_ok(f) (((f) & SFMT_MASK_FORMAT) \
 		&& (((f) & (SFMT_S8 | SFMT_U8 | SFMT_FLOAT)) \
-			|| (f) & SFMT_MASK_ENDIANES))
+			|| (f) & SFMT_MASK_ENDIANNESS))
 
-/** Change the sample format to new_fmt (without endianes) */
+/** Change the sample format to new_fmt (without endianness). */
 #define sfmt_set_fmt(f, new_fmt) (((f) & ~SFMT_MASK_FORMAT) | (new_fmt))
 
-/** Change the sample format endianes to endian */
-#define sfmt_set_endian(f, endian) (((f) & ~SFMT_MASK_ENDIANES) | (endian))
+/** Change the sample format endianness to endian. */
+#define sfmt_set_endian(f, endian) (((f) & ~SFMT_MASK_ENDIANNESS) | (endian))
 
 /** Sound parameters.
  *
@@ -81,7 +81,7 @@ struct output_driver_caps
 	int min_channels; /*!< Minimum number of channels */
 	int max_channels; /*!< Maximum number of channels */
 	long formats; /*!< Supported sample formats (or'd sfmt_fmt mask
-			with endianes') */
+			with endianness') */
 };
 
 /** \struct hw_funcs
@@ -105,8 +105,8 @@ struct hw_funcs
 
 	/** Clean up at exit.
 	 *
-	 * This dunction is invoked only once when the MOC server exits. The
-	 * audio device is not in use at this moment. The function shoul close
+	 * This function is invoked only once when the MOC server exits. The
+	 * audio device is not in use at this moment. The function should close
 	 * any opened devices and free any resources the driver allocated.
 	 * After this function was used, no other functions will be invoked.
 	 */
@@ -118,9 +118,9 @@ struct hw_funcs
 	 * parameters. The function should return 1 on success and 0 otherwise.
 	 * After returning 1 functions like play(), get_buff_fill() can be used.
 	 *
-	 * The sample rate of the driver can differ from the requestet rate.
+	 * The sample rate of the driver can differ from the requested rate.
 	 * If so, get_rate() should return the actual rate.
-	 * 
+	 *
 	 * \param sound_params Pointer to the sound_params structure holding
 	 * the required poarameters.
 	 * \return 1 on success and 0 otherwise.
@@ -138,10 +138,10 @@ struct hw_funcs
 	 * Play sound provided in the buffer. The sound is in the format
 	 * requested when the open() function was invoked. The function should
 	 * play all sound in the buffer.
-	 * 
+	 *
 	 * \param buff Pointer to the buffer with the sound.
 	 * \param size Size (in bytes) of the buffer.
-	 * 
+	 *
 	 * \return The number of bytes played or a value less than zero on
 	 * error.
 	 */
@@ -169,7 +169,7 @@ struct hw_funcs
 	 *
 	 * The function should return the number of bytes of any
 	 * hardware or internal buffers are filled. For example: if we play()
-	 * 4KB, but only 1KB was really played (could be heared by the user),
+	 * 4KB, but only 1KB was really played (could be heard by the user),
 	 * the function should return 3072 (3KB).
 	 *
 	 * \return Current hardware/internal buffer fill in bytes.
@@ -188,7 +188,7 @@ struct hw_funcs
 
 	/** Get the current sample rate setting.
 	 *
-	 * Get the actual sample rate setting of the autio driver.
+	 * Get the actual sample rate setting of the audio driver.
 	 *
 	 * \return Sample rate in Hz.
 	 */
@@ -209,7 +209,7 @@ struct hw_funcs
 	char * (*get_mixer_channel_name) ();
 };
 
-/* Does the parameters p1 and p2 are equal? */
+/* Are the parameters p1 and p2 equal? */
 #define sound_params_eq(p1, p2) ((p1).fmt == (p2).fmt \
 		&& (p1).channels == (p2).channels && (p1).rate == (p2).rate)
 
@@ -241,6 +241,7 @@ int audio_get_buf_fill ();
 void audio_close ();
 int audio_get_time ();
 int audio_get_state ();
+int audio_get_prev_state ();
 void audio_plist_add (const char *file);
 void audio_plist_clear ();
 char *audio_get_sname ();

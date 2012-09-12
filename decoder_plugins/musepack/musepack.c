@@ -9,7 +9,7 @@
  *
  */
 
-/* FIXME: mpc_decoder_docede() can give fixed point values, do we have to
+/* FIXME: mpc_decoder_decode() can give fixed point values, do we have to
  * handle this case? */
 
 #ifdef HAVE_CONFIG_H
@@ -20,6 +20,7 @@
 #include <strings.h>
 #include <stdio.h>
 #include <errno.h>
+#include <assert.h>
 
 #ifdef MPC_IS_OLD_API
 # include <mpcdec/mpcdec.h>
@@ -88,7 +89,7 @@ static mpc_bool_t seek_callback (mpc_reader *t, mpc_int32_t offset)
 #else
 	struct musepack_data *data = t->data;
 #endif
-	
+
 	debug ("Seek request to %ld", (long)offset);
 
 	return io_seek(data->stream, offset, SEEK_SET) >= 0 ? 1 : 0;
@@ -195,7 +196,7 @@ static void musepack_open_stream_internal (struct musepack_data *data)
 static void *musepack_open (const char *file)
 {
 	struct musepack_data *data;
-	
+
 	data = (struct musepack_data *)xmalloc (sizeof(struct musepack_data));
 	data->ok = 0;
 	decoder_error_init (&data->error);
@@ -209,7 +210,7 @@ static void *musepack_open (const char *file)
 	}
 	else
 		musepack_open_stream_internal (data);
-	
+
 	return data;
 }
 
@@ -223,7 +224,7 @@ static void *musepack_open_stream (struct io_stream *stream)
 	decoder_error_init (&data->error);
 	data->stream = stream;
 	musepack_open_stream_internal (data);
-	
+
 	return data;
 }
 
@@ -256,7 +257,7 @@ static void musepack_info (const char *file_name, struct file_tags *info,
 {
 	if (tags_sel & TAGS_COMMENTS) {
 		TagLib_File *tf;
-		
+
 		tf = taglib_file_new_type (file_name, TagLib_File_MPC);
 		if (tf) {
 			TagLib_Tag *tt;
@@ -294,6 +295,8 @@ static int musepack_seek (void *prv_data, int sec)
 {
 	struct musepack_data *data = (struct musepack_data *)prv_data;
 	int res;
+
+	assert (sec >= 0);
 
 #ifdef MPC_IS_OLD_API
 	res = mpc_decoder_seek_seconds (&data->decoder, sec) ? sec : -1;
@@ -333,9 +336,9 @@ static int musepack_decode (void *prv_data, char *buf, int buf_len,
 	if (data->remain_buf) {
 		size_t to_copy = MIN((unsigned)buf_len,
 				data->remain_buf_len * sizeof(float));
-		
+
 		debug ("Copying %ld bytes from the remain buf", (long)to_copy);
-		
+
 		memcpy (buf, data->remain_buf, to_copy);
 		if (to_copy / sizeof(float) < data->remain_buf_len) {
 			memmove (data->remain_buf, data->remain_buf + to_copy,
@@ -352,14 +355,14 @@ static int musepack_decode (void *prv_data, char *buf, int buf_len,
 
 		return to_copy;
 	}
-	
+
 #ifdef MPC_IS_OLD_API
 	ret = mpc_decoder_decode (&data->decoder, decode_buf, &vbrAcc, &vbrUpd);
 	if (ret == 0) {
 		debug ("EOF");
 		return 0;
 	}
-	
+
 	if (ret < 0) {
 		decoder_error (&data->error, ERROR_FATAL, 0,
 				"Error in the stream!");
@@ -394,7 +397,7 @@ static int musepack_decode (void *prv_data, char *buf, int buf_len,
 	sound_params->channels = data->info.channels;
 	sound_params->rate = data->info.sample_freq;
 	sound_params->fmt = SFMT_FLOAT;
-	
+
 	if (bytes_from_decoder >= buf_len) {
 		size_t to_copy = MIN (buf_len, bytes_from_decoder);
 
@@ -454,7 +457,7 @@ static void musepack_get_name (const char *file ATTR_UNUSED, char buf[4])
 
 static int musepack_our_format_ext (const char *ext)
 {
-	return !strcasecmp(ext, "mpc");
+	return !strcasecmp (ext, "mpc");
 }
 
 static void musepack_get_error (void *prv_data, struct decoder_error *error)
@@ -479,7 +482,6 @@ static struct decoder musepack_decoder = {
 	musepack_get_duration,
 	musepack_get_error,
 	musepack_our_format_ext,
-	NULL, /*musepack_our_format_file*/
 	NULL /*musepack_our_mime*/,
 	musepack_get_name,
 	NULL /* musepack_current_tags */,
